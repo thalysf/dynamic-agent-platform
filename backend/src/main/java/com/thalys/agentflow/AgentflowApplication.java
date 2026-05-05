@@ -1,0 +1,13 @@
+package com.thalys.agentflow;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class AgentflowApplication {
+
+	public static void main(String[] args) {
+		SpringApplication.run(AgentflowApplication.class, args);
+	}
+
+}

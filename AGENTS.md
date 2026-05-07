@@ -108,8 +108,8 @@ Ao concluir qualquer avanço relevante, este arquivo deve ser atualizado.
 Status atual:
 
 ```txt
-V1 inicial — Etapas 0 a 12
-Status: Concluída
+Pós-V1 — Refinamento de interfaces e hardening
+Status: Próxima
 ```
 
 Objetivo da etapa atual:
@@ -631,6 +631,98 @@ Próximo passo recomendado:
 Entrar em refinamento pós-V1: hardening, testes adicionais, UX e integração Groq/MCP real controlada.
 ```
 
+---
+
+### Registro 006 — Separação de interfaces do frontend e configuração Groq local
+
+Status:
+
+```txt
+Concluído
+```
+
+Resumo:
+
+O frontend foi reorganizado em interfaces próprias: Home, Projetos, Agentes, Studio e Playground. Projetos agora têm tela dedicada para criação, edição, deleção, seleção e visualização. Agentes têm tela dedicada para criação, edição, deleção e inspeção clara de responsabilidade, prompt, modelo, temperatura e tools permitidas. O Studio ficou focado em modelagem visual de fluxos com React Flow. O Playground ficou focado em testar pipelines prontos, executar inputs, consultar histórico e inspecionar traces. Também foi configurado o `.env` local ignorado pelo Git com as variáveis reais de Groq fornecidas pelo usuário, sem registrar a chave em arquivos rastreáveis.
+
+Arquivos criados/alterados:
+
+```txt
+AGENTS.md
+README.md
+.env.example
+docker-compose.yml
+frontend/src/App.tsx
+frontend/src/api/client.ts
+frontend/src/components/AppShell.tsx
+frontend/src/constants/agents.ts
+frontend/src/flows/AgentFlowNode.tsx
+frontend/src/flows/flowUtils.ts
+frontend/src/flows/types.ts
+frontend/src/pages/AgentsPage.tsx
+frontend/src/pages/HomePage.tsx
+frontend/src/pages/PlaygroundPage.tsx
+frontend/src/pages/ProjectsPage.tsx
+frontend/src/pages/StudioPage.tsx
+orchestrator/app/llm/groq_client.py
+.env (local ignorado pelo Git)
+```
+
+Decisões tomadas:
+
+- A navegação do frontend usa hash routing simples para evitar adicionar roteador antes de necessidade real.
+- A tela de agentes prioriza legibilidade operacional: descrição do que o agente faz, system prompt, modelo, temperatura e tools ficam visíveis.
+- O Studio mantém `@xyflow/react` isolado em tela própria, com `ReactFlowProvider`, `nodeTypes` estável e validação de conexão sem self edge.
+- O Playground não edita grafos; ele apenas testa pipelines salvos e apresenta histórico/traces.
+- O client frontend agora expõe update/delete de projetos, agentes e pipelines, usando os endpoints já existentes no backend.
+- `GROQ_FALLBACK_MODELS` foi adicionado ao Docker Compose e ao `.env.example`.
+- O adapter Groq tenta o modelo principal e depois os fallbacks configurados antes de falhar a execução.
+- O token real do Groq foi colocado somente no `.env` local, que é ignorado por `.gitignore`.
+
+Validações executadas:
+
+```txt
+git check-ignore -v .env
+frontend/npm run build
+backend/./mvnw.cmd test
+orchestrator/python -m pytest
+docker compose config --quiet
+docker compose up --build -d
+GET http://localhost:8080/api/health
+GET http://localhost:8000/health
+GET http://localhost:5173
+container orchestrator carregou GROQ_API_KEY real sem imprimir o segredo
+rg "gsk_" fora de .env sem resultados
+POST /api/projects
+POST /api/projects/{projectId}/agents
+POST /api/projects/{projectId}/pipelines
+POST /api/projects/{projectId}/pipelines/{pipelineId}/validate
+POST /api/projects/{projectId}/pipelines/{pipelineId}/executions com Groq real
+GET /api/executions/{executionId}/steps
+DELETE /api/projects/{projectId} para limpar dados temporários
+```
+
+Resultado da validação integrada com Groq real:
+
+```txt
+pipelineValid: true
+executionStatus: COMPLETED
+finalOutput: OK
+stepCount: 1
+```
+
+Pendências:
+
+- Adicionar testes de UI/componentes para as novas telas do frontend.
+- Melhorar edição visual com feedback mais granular e atalhos de teclado.
+- Evoluir a navegação de hash routing simples para roteamento dedicado caso a aplicação cresça.
+
+Próximo passo recomendado:
+
+```txt
+Adicionar testes de UI/componentes e seguir refinando ergonomia do Studio e Playground.
+```
+
 ## 9. Contratos importantes
 
 ### Backend para Orchestrator
@@ -714,7 +806,7 @@ Também atualizar a seção `Etapa atual` quando uma etapa for concluída.
 Executar refinamento pós-V1:
 
 1. Ampliar testes automatizados de backend, frontend e orchestrator.
-2. Validar execução real com `GROQ_API_KEY` local.
-3. Melhorar UX do editor visual e dos traces de execução.
-4. Evoluir MCP básico para integração real controlada.
+2. Melhorar UX do editor visual e dos traces de execução.
+3. Evoluir MCP básico para integração real controlada.
+4. Considerar roteamento dedicado no frontend quando houver mais telas.
 5. Atualizar este `AGENTS.md`.

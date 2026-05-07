@@ -18,7 +18,9 @@ The initial V1 scope from stages 0 through 12 is implemented:
 - Groq adapter with local mock fallback when `GROQ_API_KEY` is not configured
 - Controlled MCP-like tool registry for the V1
 - Internal A2A-like message contract in the orchestrator
-- React + Vite + Tailwind UI for projects, agents, visual pipelines, execution and traces
+- React + Vite + Tailwind UI split into Home, Projects, Agents, Studio and Playground
+- Dedicated project and agent management with create, edit, delete and inspection views
+- Dedicated visual Studio for graph modeling and dedicated Playground for execution tests
 
 ## Local Development
 
@@ -46,3 +48,5 @@ Local URLs:
 - Frontend: `http://localhost:5173`
 - Backend health: `http://localhost:8080/api/health`
 - Orchestrator health: `http://localhost:8000/health`
+
+Local secrets belong in `.env`, which is ignored by Git. Use `.env.example` only as a safe template.

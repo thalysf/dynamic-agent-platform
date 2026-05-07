@@ -132,6 +132,19 @@ export function createProject(payload: ProjectPayload): Promise<Project> {
   });
 }
 
+export function updateProject(projectId: string, payload: ProjectPayload): Promise<Project> {
+  return request<Project>(`/api/projects/${projectId}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteProject(projectId: string): Promise<void> {
+  return request<void>(`/api/projects/${projectId}`, {
+    method: 'DELETE',
+  });
+}
+
 export function listAgents(projectId: string): Promise<Agent[]> {
   return request<Agent[]>(`/api/projects/${projectId}/agents`);
 }
@@ -140,6 +153,19 @@ export function createAgent(projectId: string, payload: AgentPayload): Promise<A
   return request<Agent>(`/api/projects/${projectId}/agents`, {
     method: 'POST',
     body: JSON.stringify(payload),
+  });
+}
+
+export function updateAgent(projectId: string, agentId: string, payload: AgentPayload): Promise<Agent> {
+  return request<Agent>(`/api/projects/${projectId}/agents/${agentId}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteAgent(projectId: string, agentId: string): Promise<void> {
+  return request<void>(`/api/projects/${projectId}/agents/${agentId}`, {
+    method: 'DELETE',
   });
 }
 
@@ -158,6 +184,12 @@ export function updatePipeline(projectId: string, pipelineId: string, payload: P
   return request<Pipeline>(`/api/projects/${projectId}/pipelines/${pipelineId}`, {
     method: 'PUT',
     body: JSON.stringify(payload),
+  });
+}
+
+export function deletePipeline(projectId: string, pipelineId: string): Promise<void> {
+  return request<void>(`/api/projects/${projectId}/pipelines/${pipelineId}`, {
+    method: 'DELETE',
   });
 }
 

@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.thalys.agentflow.dto.PipelineRequest;
 import com.thalys.agentflow.dto.PipelineResponse;
+import com.thalys.agentflow.dto.PipelineValidationResponse;
 import com.thalys.agentflow.service.PipelineService;
 
 import jakarta.validation.Valid;
@@ -57,5 +58,10 @@ public class PipelineController {
     ResponseEntity<Void> delete(@PathVariable UUID projectId, @PathVariable UUID pipelineId) {
         pipelineService.delete(projectId, pipelineId);
         return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/{pipelineId}/validate")
+    PipelineValidationResponse validate(@PathVariable UUID projectId, @PathVariable UUID pipelineId) {
+        return pipelineService.validate(projectId, pipelineId);
     }
 }

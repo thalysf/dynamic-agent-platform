@@ -70,6 +70,57 @@ export type AgentPayload = {
   allowedTools: string[];
 };
 
+export type Pipeline = {
+  id: string;
+  projectId: string;
+  name: string;
+  description: string | null;
+  nodesJson: string;
+  edgesJson: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PipelinePayload = {
+  name: string;
+  description: string;
+  nodesJson: string;
+  edgesJson: string;
+};
+
+export type PipelineValidation = {
+  valid: boolean;
+  errors: string[];
+};
+
+export type ExecutionStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+
+export type Execution = {
+  id: string;
+  pipelineId: string;
+  status: ExecutionStatus;
+  initialInput: string;
+  finalOutput: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  errorMessage: string | null;
+};
+
+export type ExecutionStep = {
+  id: string;
+  executionId: string;
+  stepIndex: number;
+  nodeId: string | null;
+  agentId: string | null;
+  status: ExecutionStatus;
+  input: string | null;
+  output: string | null;
+  toolCalls: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  errorMessage: string | null;
+};
+
 export function listProjects(): Promise<Project[]> {
   return request<Project[]>('/api/projects');
 }
@@ -90,4 +141,43 @@ export function createAgent(projectId: string, payload: AgentPayload): Promise<A
     method: 'POST',
     body: JSON.stringify(payload),
   });
+}
+
+export function listPipelines(projectId: string): Promise<Pipeline[]> {
+  return request<Pipeline[]>(`/api/projects/${projectId}/pipelines`);
+}
+
+export function createPipeline(projectId: string, payload: PipelinePayload): Promise<Pipeline> {
+  return request<Pipeline>(`/api/projects/${projectId}/pipelines`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updatePipeline(projectId: string, pipelineId: string, payload: PipelinePayload): Promise<Pipeline> {
+  return request<Pipeline>(`/api/projects/${projectId}/pipelines/${pipelineId}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function validatePipeline(projectId: string, pipelineId: string): Promise<PipelineValidation> {
+  return request<PipelineValidation>(`/api/projects/${projectId}/pipelines/${pipelineId}/validate`, {
+    method: 'POST',
+  });
+}
+
+export function runPipeline(projectId: string, pipelineId: string, initialInput: string): Promise<Execution> {
+  return request<Execution>(`/api/projects/${projectId}/pipelines/${pipelineId}/executions`, {
+    method: 'POST',
+    body: JSON.stringify({ initialInput }),
+  });
+}
+
+export function listExecutions(projectId: string, pipelineId: string): Promise<Execution[]> {
+  return request<Execution[]>(`/api/projects/${projectId}/pipelines/${pipelineId}/executions`);
+}
+
+export function listExecutionSteps(executionId: string): Promise<ExecutionStep[]> {
+  return request<ExecutionStep[]>(`/api/executions/${executionId}/steps`);
 }

@@ -4,15 +4,21 @@ AgentFlow Studio is a study project for building a visual multi-agent orchestrat
 
 ## Current Stage
 
-Stages 2 through 5 are implemented:
+The initial V1 scope from stages 0 through 12 is implemented:
 
 - Java + Spring Boot + Maven
 - PostgreSQL
 - Flyway migrations
 - Project and agent CRUD APIs
-- Basic pipeline and execution APIs for mocked runs
-- Python FastAPI orchestrator with health check and mocked `/orchestrations/run`
-- React + Vite + Tailwind UI for creating projects and agents
+- Pipeline and execution APIs
+- Backend pipeline validation for V1 DAG rules
+- Execution step persistence and trace APIs
+- Python FastAPI orchestrator with health check and `/orchestrations/run`
+- LangGraph-based pipeline execution
+- Groq adapter with local mock fallback when `GROQ_API_KEY` is not configured
+- Controlled MCP-like tool registry for the V1
+- Internal A2A-like message contract in the orchestrator
+- React + Vite + Tailwind UI for projects, agents, visual pipelines, execution and traces
 
 ## Local Development
 

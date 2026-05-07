@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.thalys.agentflow.dto.ExecutionRequest;
 import com.thalys.agentflow.dto.ExecutionResponse;
+import com.thalys.agentflow.dto.ExecutionStepResponse;
 import com.thalys.agentflow.service.ExecutionService;
 
 import jakarta.validation.Valid;
@@ -42,5 +43,10 @@ public class ExecutionController {
     @GetMapping("/api/executions/{executionId}")
     ExecutionResponse findById(@PathVariable UUID executionId) {
         return executionService.findById(executionId);
+    }
+
+    @GetMapping("/api/executions/{executionId}/steps")
+    List<ExecutionStepResponse> findSteps(@PathVariable UUID executionId) {
+        return executionService.findSteps(executionId);
     }
 }

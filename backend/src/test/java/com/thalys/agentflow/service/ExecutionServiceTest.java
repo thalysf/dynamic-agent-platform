@@ -22,14 +22,19 @@ import com.thalys.agentflow.domain.Pipeline;
 import com.thalys.agentflow.domain.Project;
 import com.thalys.agentflow.dto.ExecutionRequest;
 import com.thalys.agentflow.dto.OrchestratorRunResponse;
+import com.thalys.agentflow.dto.PipelineValidationResponse;
 import com.thalys.agentflow.repository.AgentRepository;
 import com.thalys.agentflow.repository.ExecutionRepository;
+import com.thalys.agentflow.repository.ExecutionStepRepository;
 
 @ExtendWith(MockitoExtension.class)
 class ExecutionServiceTest {
 
     @Mock
     private ExecutionRepository executionRepository;
+
+    @Mock
+    private ExecutionStepRepository executionStepRepository;
 
     @Mock
     private AgentRepository agentRepository;
@@ -46,8 +51,8 @@ class ExecutionServiceTest {
 
     @BeforeEach
     void setUp() {
-        executionService = new ExecutionService(executionRepository, agentRepository, pipelineService, orchestratorClient,
-                objectMapper);
+        executionService = new ExecutionService(executionRepository, executionStepRepository, agentRepository,
+                pipelineService, orchestratorClient, objectMapper);
     }
 
     @Test
@@ -58,6 +63,7 @@ class ExecutionServiceTest {
         Pipeline pipeline = new Pipeline(project, "Main", null, "[]", "[]");
 
         when(pipelineService.findPipeline(projectId, pipelineId)).thenReturn(pipeline);
+        when(pipelineService.validate(projectId, pipelineId)).thenReturn(new PipelineValidationResponse(true, List.of()));
         when(executionRepository.save(any(Execution.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(agentRepository.findByProjectIdOrderByCreatedAtDesc(projectId)).thenReturn(List.of());
         when(orchestratorClient.run(any())).thenReturn(new OrchestratorRunResponse(

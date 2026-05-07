@@ -108,22 +108,22 @@ Ao concluir qualquer avanço relevante, este arquivo deve ser atualizado.
 Status atual:
 
 ```txt
-Etapa 6 — Pipeline visual
-Status: Próxima
+V1 inicial — Etapas 0 a 12
+Status: Concluída
 ```
 
 Objetivo da etapa atual:
 
-Implementar montagem visual de pipelines no frontend usando React Flow e persistir o grafo no backend.
+Refinar a V1 implementada, ampliar cobertura de testes, melhorar UX e evoluir integrações reais sem sair do escopo seguro do projeto.
 
 Arquivos esperados nesta etapa:
 
 ```txt
-instalação/configuração do React Flow
-canvas de pipeline
-nodes de agentes
-edges entre agentes
-salvamento do grafo no backend
+testes adicionais de controllers/services
+ajustes de UX no editor visual e tela de execução
+integração MCP real controlada
+validação com GROQ_API_KEY real em ambiente local
+documentação incremental
 ```
 
 ---
@@ -210,25 +210,27 @@ cd backend
 
 ### Orchestrator Python
 
-A definir após criação do projeto Python.
-
-Comandos esperados:
-
 ```bash
 cd orchestrator
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
+```bash
+cd orchestrator
+python -m pytest
+```
+
 ### Frontend React
-
-A definir após criação do projeto Vite.
-
-Comandos esperados:
 
 ```bash
 cd frontend
 npm install
 npm run dev
+```
+
+```bash
+cd frontend
+npm run build
 ```
 
 ---
@@ -535,6 +537,100 @@ Próximo passo recomendado:
 Executar a Etapa 6 — Pipeline visual com React Flow.
 ```
 
+---
+
+### Registro 005 — Etapas 6 a 12 implementadas
+
+Status:
+
+```txt
+Concluído
+```
+
+Resumo:
+
+Foram executadas as Etapas 6, 7, 8, 9, 10, 11 e 12. O frontend agora possui editor visual de pipelines com React Flow, criação e seleção de pipelines, adição de agentes como nodes, conexão por edges, validação, execução e exibição de histórico/traces. O backend valida pipelines antes da execução, impede grafos inválidos para a V1, chama o orchestrator, persiste execuções e grava `ExecutionStep` com input, output, status, tool calls, timestamps e erros. O orchestrator passou a executar o pipeline com LangGraph, usar um adapter Groq com fallback mock local, registrar tools MCP-like permitidas e montar mensagens internas A2A-like.
+
+Arquivos criados/alterados:
+
+```txt
+README.md
+AGENTS.md
+backend/src/main/java/com/thalys/agentflow/config/ApiExceptionHandler.java
+backend/src/main/java/com/thalys/agentflow/controller/ExecutionController.java
+backend/src/main/java/com/thalys/agentflow/controller/PipelineController.java
+backend/src/main/java/com/thalys/agentflow/domain/ExecutionStep.java
+backend/src/main/java/com/thalys/agentflow/dto/ExecutionStepResponse.java
+backend/src/main/java/com/thalys/agentflow/dto/PipelineValidationResponse.java
+backend/src/main/java/com/thalys/agentflow/repository/ExecutionStepRepository.java
+backend/src/main/java/com/thalys/agentflow/service/ExecutionService.java
+backend/src/main/java/com/thalys/agentflow/service/PipelineService.java
+backend/src/main/resources/db/migration/V3__create_execution_steps_table.sql
+backend/src/test/java/com/thalys/agentflow/service/ExecutionServiceTest.java
+frontend/package.json
+frontend/package-lock.json
+frontend/src/App.tsx
+frontend/src/api/client.ts
+orchestrator/pyproject.toml
+orchestrator/app/a2a/
+orchestrator/app/graph/
+orchestrator/app/llm/
+orchestrator/app/mcp/
+orchestrator/app/schemas/orchestration.py
+orchestrator/app/services/mock_orchestrator.py
+orchestrator/tests/test_main.py
+```
+
+Decisões tomadas:
+
+- O editor visual usa `@xyflow/react`, mantendo nodes e edges serializados nos campos `nodesJson` e `edgesJson` do backend.
+- A validação de pipeline fica no backend como barreira principal antes da execução.
+- A V1 aceita no máximo 10 nodes, exige pelo menos um node inicial, valida agentes por projeto, rejeita self edges, edges com endpoints inexistentes e ciclos.
+- O runtime LangGraph executa os nodes em ordem topológica sequencial na V1, preservando passagem de contexto de forma previsível.
+- O adapter Groq usa chamada real apenas quando `GROQ_API_KEY` estiver configurada e diferente de `replace-me`; sem chave real, usa fallback mock local para desenvolvimento e testes.
+- O suporte MCP inicial é uma registry controlada com tools mockadas (`word_count` e `echo_context`), executadas somente quando listadas em `allowedTools` do agente.
+- O contrato A2A-like foi modelado no orchestrator como mensagem interna para registrar sender, receiver, conteúdo, contexto e metadados.
+
+Validações executadas:
+
+```txt
+backend/./mvnw.cmd test
+orchestrator/python -m pytest
+frontend/npm run build
+docker compose config --quiet
+docker compose up --build -d
+POST /api/projects
+POST /api/projects/{projectId}/agents
+POST /api/projects/{projectId}/pipelines
+POST /api/projects/{projectId}/pipelines/{pipelineId}/validate
+POST /api/projects/{projectId}/pipelines/{pipelineId}/executions
+GET /api/executions/{executionId}/steps
+```
+
+Resultado da validação integrada:
+
+```txt
+pipelineValid: true
+executionStatus: COMPLETED
+stepCount: 2
+firstStepTool: word_count COMPLETED
+secondStepTool: echo_context COMPLETED
+```
+
+Pendências:
+
+- Validar uma execução com `GROQ_API_KEY` real em ambiente local.
+- Adicionar testes de controller para validação de pipelines, execuções e steps.
+- Melhorar operações do editor visual, como remoção explícita de nodes/edges e feedback visual de salvamento.
+- Evoluir MCP de registry mockada para integração MCP real e segura.
+- Considerar paginação/filtros para histórico de execuções conforme volume crescer.
+
+Próximo passo recomendado:
+
+```txt
+Entrar em refinamento pós-V1: hardening, testes adicionais, UX e integração Groq/MCP real controlada.
+```
+
 ## 9. Contratos importantes
 
 ### Backend para Orchestrator
@@ -615,10 +711,10 @@ Também atualizar a seção `Etapa atual` quando uma etapa for concluída.
 
 ## 12. Próxima ação recomendada para o agente
 
-Executar a Etapa 2:
+Executar refinamento pós-V1:
 
-1. Implementar CRUD de projetos.
-2. Implementar CRUD de agentes por projeto.
-3. Adicionar validações básicas.
-4. Adicionar testes relevantes.
+1. Ampliar testes automatizados de backend, frontend e orchestrator.
+2. Validar execução real com `GROQ_API_KEY` local.
+3. Melhorar UX do editor visual e dos traces de execução.
+4. Evoluir MCP básico para integração real controlada.
 5. Atualizar este `AGENTS.md`.

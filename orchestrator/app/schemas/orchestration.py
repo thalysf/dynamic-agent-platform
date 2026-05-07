@@ -1,5 +1,6 @@
 from typing import Any
 from uuid import UUID
+from datetime import datetime
 
 from pydantic import BaseModel, Field
 
@@ -38,12 +39,16 @@ class OrchestrationRunRequest(BaseModel):
 
 class OrchestrationStep(BaseModel):
     index: int
+    nodeId: str | None = None
     agentId: UUID | None = None
     agentName: str
     status: str
     input: str
     output: str
     toolCalls: list[dict[str, Any]] = Field(default_factory=list)
+    startedAt: datetime | None = None
+    finishedAt: datetime | None = None
+    errorMessage: str | None = None
 
 
 class OrchestrationRunResponse(BaseModel):

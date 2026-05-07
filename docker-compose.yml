@@ -36,8 +36,6 @@ services:
       - "8080:8080"
 
   orchestrator:
-    profiles:
-      - future
     build:
       context: ./orchestrator
       dockerfile: Dockerfile
@@ -51,8 +49,6 @@ services:
       - "8000:8000"
 
   frontend:
-    profiles:
-      - future
     build:
       context: ./frontend
       dockerfile: Dockerfile

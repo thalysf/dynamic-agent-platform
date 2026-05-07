@@ -14,6 +14,7 @@ replay_pid*
 # Python
 __pycache__/
 *.py[cod]
+*.egg-info/
 .venv/
 venv/
 .pytest_cache/
@@ -25,6 +26,7 @@ node_modules/
 dist/
 build/
 .vite/
+*.tsbuildinfo
 
 # IDEs and OS files
 .idea/

@@ -18,3 +18,7 @@ spring:
 
 server:
   port: ${SERVER_PORT:8080}
+
+agentflow:
+  orchestrator:
+    base-url: ${ORCHESTRATOR_BASE_URL:http://localhost:8000}

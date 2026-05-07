@@ -4,15 +4,17 @@ AgentFlow Studio is a study project for building a visual multi-agent orchestrat
 
 ## Current Stage
 
-The backend foundation is complete and the next planned stage is CRUD for projects and agents:
+Stages 2 through 5 are implemented:
 
 - Java + Spring Boot + Maven
 - PostgreSQL
 - Flyway migrations
-- `GET /api/health`
-- initial `projects` table
+- Project and agent CRUD APIs
+- Basic pipeline and execution APIs for mocked runs
+- Python FastAPI orchestrator with health check and mocked `/orchestrations/run`
+- React + Vite + Tailwind UI for creating projects and agents
 
-## Local Backend
+## Local Development
 
 ```bash
 cd backend
@@ -20,7 +22,21 @@ cd backend
 ```
 
 ```bash
+cd orchestrator
+python -m pytest
+```
+
+```bash
+cd frontend
+npm run build
+```
+
+```bash
 docker compose up --build
 ```
 
-The default Docker Compose command currently starts PostgreSQL and the backend. Frontend and orchestrator services are kept behind the `future` profile until their implementation stages.
+Local URLs:
+
+- Frontend: `http://localhost:5173`
+- Backend health: `http://localhost:8080/api/health`
+- Orchestrator health: `http://localhost:8000/health`

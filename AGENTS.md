@@ -108,21 +108,22 @@ Ao concluir qualquer avanço relevante, este arquivo deve ser atualizado.
 Status atual:
 
 ```txt
-Etapa 2 — CRUD de projetos e agentes
+Etapa 6 — Pipeline visual
 Status: Próxima
 ```
 
 Objetivo da etapa atual:
 
-Implementar persistência inicial de projetos e agentes sobre o backend Java/Spring Boot já criado.
+Implementar montagem visual de pipelines no frontend usando React Flow e persistir o grafo no backend.
 
 Arquivos esperados nesta etapa:
 
 ```txt
-controllers/services/dtos de projetos
-controllers/services/dtos de agentes
-migrations adicionais quando necessário
-testes de services/controllers
+instalação/configuração do React Flow
+canvas de pipeline
+nodes de agentes
+edges entre agentes
+salvamento do grafo no backend
 ```
 
 ---
@@ -426,6 +427,112 @@ Próximo passo recomendado:
 
 ```txt
 Executar a Etapa 2 — CRUD de projetos e agentes.
+```
+
+---
+
+### Registro 004 — Etapas 2 a 5 implementadas
+
+Status:
+
+```txt
+Concluído
+```
+
+Resumo:
+
+Foram executadas as Etapas 2, 3, 4 e 5. O backend agora possui CRUD de projetos e agentes, além de modelos mínimos de pipelines e execuções para permitir disparar execuções mockadas no orchestrator. O orchestrator Python foi criado com FastAPI, health check e endpoint `POST /orchestrations/run` mockado. O frontend React/Vite/Tailwind foi criado com uma UI inicial para criar projetos, selecionar projeto e criar agentes vinculados ao projeto.
+
+Arquivos criados/alterados:
+
+```txt
+README.md
+.gitignore
+docker-compose.yml
+backend/.dockerignore
+backend/src/main/resources/application.yml
+backend/src/main/resources/db/migration/V2__create_agents_pipelines_executions.sql
+backend/src/main/java/com/thalys/agentflow/client/OrchestratorClient.java
+backend/src/main/java/com/thalys/agentflow/config/ApiExceptionHandler.java
+backend/src/main/java/com/thalys/agentflow/config/WebConfig.java
+backend/src/main/java/com/thalys/agentflow/controller/ProjectController.java
+backend/src/main/java/com/thalys/agentflow/controller/AgentController.java
+backend/src/main/java/com/thalys/agentflow/controller/PipelineController.java
+backend/src/main/java/com/thalys/agentflow/controller/ExecutionController.java
+backend/src/main/java/com/thalys/agentflow/domain/Project.java
+backend/src/main/java/com/thalys/agentflow/domain/Agent.java
+backend/src/main/java/com/thalys/agentflow/domain/AgentType.java
+backend/src/main/java/com/thalys/agentflow/domain/Pipeline.java
+backend/src/main/java/com/thalys/agentflow/domain/Execution.java
+backend/src/main/java/com/thalys/agentflow/domain/ExecutionStatus.java
+backend/src/main/java/com/thalys/agentflow/dto/
+backend/src/main/java/com/thalys/agentflow/repository/
+backend/src/main/java/com/thalys/agentflow/service/
+backend/src/test/java/com/thalys/agentflow/controller/ProjectControllerTest.java
+backend/src/test/java/com/thalys/agentflow/service/
+orchestrator/.dockerignore
+orchestrator/Dockerfile
+orchestrator/pyproject.toml
+orchestrator/app/
+orchestrator/tests/test_main.py
+frontend/.dockerignore
+frontend/Dockerfile
+frontend/package.json
+frontend/package-lock.json
+frontend/index.html
+frontend/vite.config.ts
+frontend/tailwind.config.js
+frontend/postcss.config.js
+frontend/tsconfig.json
+frontend/src/
+```
+
+Decisões tomadas:
+
+- O backend mantém Java/Spring Boot/Maven e separação simples em controller, service, repository, domain, dto, client e config.
+- `Agent.allowedTools` foi modelado como `@ElementCollection`, suficiente para a V1.
+- `Pipeline` e `Execution` mínimos foram adicionados já na Etapa 4 para permitir disparo e persistência de execução mockada, mesmo que o editor visual completo seja da Etapa 6.
+- `nodesJson` e `edgesJson` ficam como texto JSON por simplicidade inicial; a Etapa 6 pode salvar o grafo do React Flow nesses campos.
+- O client Java do orchestrator força HTTP/1.1 para evitar upgrade HTTP incompatível com o Uvicorn em Docker.
+- O frontend usa React client-side simples com Vite e Tailwind, sem adicionar TanStack Query ainda, para preservar simplicidade nesta etapa.
+- O Docker Compose agora sobe postgres, backend, orchestrator e frontend por padrão.
+
+Validações executadas:
+
+```txt
+backend/./mvnw test
+orchestrator/python -m pytest
+frontend/npm run build
+docker compose config --quiet
+docker compose up --build -d
+GET http://localhost:8080/api/health
+GET http://localhost:8000/health
+GET http://localhost:5173
+POST /api/projects
+POST /api/projects/{projectId}/agents
+POST /api/projects/{projectId}/pipelines
+POST /api/projects/{projectId}/pipelines/{pipelineId}/executions
+```
+
+Resultado da validação integrada:
+
+```txt
+executionStatus: COMPLETED
+finalOutput: [Writer] mock response for: Hello from backend validation
+```
+
+Pendências:
+
+- Implementar Etapa 6 com pipeline visual usando React Flow.
+- Adicionar validação real de pipelines, incluindo grafo sem ciclos e pelo menos um node inicial.
+- Persistir `ExecutionStep` e traces detalhados na Etapa 9.
+- Substituir execução mockada por LangGraph real na Etapa 7.
+- Integrar Groq real apenas na Etapa 8.
+
+Próximo passo recomendado:
+
+```txt
+Executar a Etapa 6 — Pipeline visual com React Flow.
 ```
 
 ## 9. Contratos importantes

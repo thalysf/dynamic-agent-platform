@@ -1022,6 +1022,102 @@ Próximo passo recomendado:
 Adicionar teste visual do Playground cobrindo minimapa, prompts longos e estados de execução.
 ```
 
+### Registro 013 — Playground sem prompt duplicado e atalho para edição
+
+Status:
+
+```txt
+Concluído
+```
+
+Resumo:
+
+Foi ajustado o card de execução do Playground para remover a caixa extra de system prompt. O prompt voltou a aparecer apenas como o texto compacto abaixo do nome do agente, limitado a duas linhas com reticências quando necessário, e o conteúdo completo aparece em popover ao passar o mouse ou focar o texto. Também foi adicionado um atalho de navegação: ao clicar no step de um agente no grafo runtime, a aplicação abre a tela de Agentes diretamente no formulário de edição daquele agente.
+
+Arquivos criados/alterados:
+
+```txt
+AGENTS.md
+frontend/src/App.tsx
+frontend/src/pages/AgentsPage.tsx
+frontend/src/pages/PlaygroundPage.tsx
+frontend/src/styles.css
+```
+
+Decisões tomadas:
+
+- A prévia do system prompt fica no próprio texto do card runtime, sem rótulo ou caixa dedicada, para evitar duplicidade visual.
+- A prévia usa truncamento em duas linhas e mantém o popover com `white-space: pre-wrap` e quebra segura de palavras longas.
+- A navegação para edição usa o estado global simples já existente no `App`, preservando o hash routing atual sem introduzir roteador dedicado.
+
+Validações executadas:
+
+```txt
+frontend/npm run build
+Start-Process npm.cmd run dev -- --host 0.0.0.0 --port 5174
+GET http://localhost:5174
+```
+
+Pendências:
+
+- Adicionar teste visual/integração leve cobrindo hover de prompts longos e clique em step para edição.
+
+Próximo passo recomendado:
+
+```txt
+Adicionar suíte inicial de testes de frontend para fluxos críticos do Playground e Agentes.
+```
+
+### Registro 014 — CORS local flexível e favicon do frontend
+
+Status:
+
+```txt
+Concluído
+```
+
+Resumo:
+
+Foi corrigido o bloqueio de CORS ao acessar o frontend por uma porta local diferente de `5173`, como `5174`. O backend agora aceita origens locais de desenvolvimento em `localhost` e `127.0.0.1` com qualquer porta, mantendo a liberação restrita ao ambiente local. Também foi adicionado um favicon SVG simples ao frontend para eliminar o 404 de `/favicon.ico`/favicon ausente no navegador.
+
+Arquivos criados/alterados:
+
+```txt
+AGENTS.md
+backend/src/main/java/com/thalys/agentflow/config/WebConfig.java
+frontend/index.html
+frontend/public/favicon.svg
+```
+
+Decisões tomadas:
+
+- O CORS passou de origens fixas em `5173` para `allowedOriginPatterns("http://localhost:*", "http://127.0.0.1:*")`, adequado para Vite em portas alternativas durante desenvolvimento.
+- A liberação não usa wildcard amplo para qualquer domínio, preservando uma barreira simples de segurança local.
+- O favicon fica em `frontend/public/favicon.svg` e é referenciado diretamente no `index.html`.
+
+Validações executadas:
+
+```txt
+backend/./mvnw.cmd test
+frontend/npm run build
+docker compose up --build -d backend
+docker compose up --build -d frontend
+OPTIONS http://localhost:8080/api/projects com Origin http://localhost:5174
+GET http://localhost:8080/api/projects com Origin http://localhost:5174
+GET http://localhost:5173/favicon.svg
+docker compose ps
+```
+
+Pendências:
+
+- Se o frontend for exposto fora de localhost no futuro, parametrizar origens permitidas por variável de ambiente em vez de manter padrões locais no código.
+
+Próximo passo recomendado:
+
+```txt
+Adicionar suíte inicial de testes de frontend para fluxos críticos do Playground e Agentes.
+```
+
 ## 9. Contratos importantes
 
 ### Backend para Orchestrator

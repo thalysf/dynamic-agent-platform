@@ -38,6 +38,7 @@ type PlaygroundPageProps = {
   busy: boolean;
   onBusyChange: (busy: boolean) => void;
   onSelectPipeline: (pipelineId: string) => void;
+  onEditAgent: (agentId: string) => void;
   onExecutionsChanged: () => Promise<void>;
   onError: (message: string | null) => void;
 };
@@ -72,6 +73,7 @@ type GraphPlan = {
 
 type RuntimeNodeData = {
   index: number;
+  agentId: string | null;
   label: string;
   description: string;
   systemPrompt: string;
@@ -118,16 +120,16 @@ function RuntimeNodeView({ data }: NodeProps<RuntimeNode>) {
         </div>
         <span className={`rounded border px-2 py-1 text-xs font-medium ${statusClass(data.status)}`}>{statusLabel(data.status)}</span>
       </div>
-      <p className="mt-3 line-clamp-3 text-sm leading-6 text-slate-300">{data.description}</p>
       {data.systemPrompt ? (
         <div className="runtime-prompt-preview" tabIndex={0}>
-          <span className="runtime-prompt-label">System prompt</span>
           <p className="runtime-prompt-text">{data.systemPrompt}</p>
           <div className="runtime-prompt-popover" role="tooltip">
             {data.systemPrompt}
           </div>
         </div>
-      ) : null}
+      ) : (
+        <p className="mt-3 line-clamp-2 text-sm leading-6 text-slate-300">{data.description}</p>
+      )}
       <Handle className="runtime-handle" type="source" position={Position.Right} />
     </div>
   );
@@ -406,10 +408,12 @@ function RuntimeFlow({
   graphPlan,
   liveSteps,
   activityTick,
+  onEditAgent,
 }: {
   graphPlan: GraphPlan;
   liveSteps: LiveStep[];
   activityTick: number;
+  onEditAgent: (agentId: string) => void;
 }) {
   const { fitView } = useReactFlow<RuntimeNode, RuntimeEdge>();
   const displayedSteps = liveSteps.length ? liveSteps : resetGraphSteps(graphPlan);
@@ -425,6 +429,7 @@ function RuntimeFlow({
         draggable: false,
         data: {
           index: step.index,
+          agentId: step.agentId,
           label: step.label,
           description: step.description,
           systemPrompt: step.systemPrompt,
@@ -482,6 +487,11 @@ function RuntimeFlow({
         nodeTypes={nodeTypes}
         nodes={nodes}
         nodesDraggable={false}
+        onNodeClick={(_, node) => {
+          if (node.data.agentId) {
+            onEditAgent(node.data.agentId);
+          }
+        }}
         panOnDrag
         panOnScroll
         proOptions={{ hideAttribution: true }}
@@ -532,6 +542,7 @@ function PlaygroundPage({
   busy,
   onBusyChange,
   onSelectPipeline,
+  onEditAgent,
   onExecutionsChanged,
   onError,
 }: PlaygroundPageProps) {
@@ -714,7 +725,7 @@ function PlaygroundPage({
 
             <div className="mt-5 overflow-hidden rounded border border-slate-700/40">
               <ReactFlowProvider>
-                <RuntimeFlow activityTick={activityTick} graphPlan={graphPlan} liveSteps={liveSteps} />
+                <RuntimeFlow activityTick={activityTick} graphPlan={graphPlan} liveSteps={liveSteps} onEditAgent={onEditAgent} />
               </ReactFlowProvider>
             </div>
           </div>

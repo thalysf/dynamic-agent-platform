@@ -7,8 +7,10 @@ type AgentsPageProps = {
   selectedProject: Project | null;
   agents: Agent[];
   busy: boolean;
+  editAgentId: string;
   onBusyChange: (busy: boolean) => void;
   onAgentsChanged: () => Promise<void>;
+  onEditAgentRequestConsumed: () => void;
   onError: (message: string | null) => void;
 };
 
@@ -25,7 +27,16 @@ function toDraft(agent: Agent): AgentPayload {
   };
 }
 
-function AgentsPage({ selectedProject, agents, busy, onBusyChange, onAgentsChanged, onError }: AgentsPageProps) {
+function AgentsPage({
+  selectedProject,
+  agents,
+  busy,
+  editAgentId,
+  onBusyChange,
+  onAgentsChanged,
+  onEditAgentRequestConsumed,
+  onError,
+}: AgentsPageProps) {
   const [draft, setDraft] = useState<AgentPayload>(DEFAULT_AGENT);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState('');
@@ -49,6 +60,18 @@ function AgentsPage({ selectedProject, agents, busy, onBusyChange, onAgentsChang
     setSelectedAgentId(agent.id);
     setDraft(toDraft(agent));
   }
+
+  useEffect(() => {
+    if (!editAgentId) {
+      return;
+    }
+    const agent = agents.find((item) => item.id === editAgentId);
+    if (!agent) {
+      return;
+    }
+    startEdit(agent);
+    onEditAgentRequestConsumed();
+  }, [agents, editAgentId, onEditAgentRequestConsumed]);
 
   function toggleTool(toolName: string) {
     setDraft((current) => {

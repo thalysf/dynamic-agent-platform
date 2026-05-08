@@ -154,6 +154,7 @@ body {
 
 .runtime-flow .react-flow__node {
   overflow: visible;
+  cursor: pointer;
 }
 
 .runtime-flow .react-flow__edge-path {
@@ -205,31 +206,17 @@ body {
 .runtime-prompt-preview {
   position: relative;
   margin-top: 12px;
-  border: 1px solid rgba(148, 163, 184, 0.22);
-  border-radius: 8px;
-  background: rgba(2, 6, 23, 0.28);
-  padding: 8px 10px;
   outline: none;
 }
 
-.runtime-prompt-label {
-  display: block;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0;
-  text-transform: uppercase;
-  color: rgba(204, 251, 241, 0.86);
-}
-
 .runtime-prompt-text {
-  margin-top: 3px;
   display: -webkit-box;
   overflow: hidden;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
-  color: rgba(226, 232, 240, 0.86);
-  font-size: 12px;
-  line-height: 1.45;
+  color: rgb(203, 213, 225);
+  font-size: 14px;
+  line-height: 1.5;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }

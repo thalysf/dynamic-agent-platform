@@ -22,6 +22,7 @@ function App() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
   const [selectedPipelineId, setSelectedPipelineId] = useState('');
+  const [agentEditRequestId, setAgentEditRequestId] = useState('');
   const [executions, setExecutions] = useState<Execution[]>([]);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -117,6 +118,11 @@ function App() {
     setView(nextView);
   }
 
+  function editAgentFromPlayground(agentId: string) {
+    setAgentEditRequestId(agentId);
+    navigate('agents');
+  }
+
   return (
     <AppShell
       error={error}
@@ -151,9 +157,11 @@ function App() {
         <AgentsPage
           agents={agents}
           busy={busy}
+          editAgentId={agentEditRequestId}
           selectedProject={selectedProject}
           onAgentsChanged={refreshSelectedProjectData}
           onBusyChange={setBusy}
+          onEditAgentRequestConsumed={() => setAgentEditRequestId('')}
           onError={setError}
         />
       ) : null}
@@ -184,6 +192,7 @@ function App() {
           onBusyChange={setBusy}
           onError={setError}
           onExecutionsChanged={refreshSelectedExecutions}
+          onEditAgent={editAgentFromPlayground}
           onSelectPipeline={setSelectedPipelineId}
         />
       ) : null}

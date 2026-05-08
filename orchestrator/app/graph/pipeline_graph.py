@@ -12,38 +12,59 @@ from app.schemas.orchestration import AgentPayload, OrchestrationRunRequest
 
 
 class PipelineState(TypedDict):
-    current_input: str
-    previous_outputs: dict[str, str]
-    final_output: str
+    initial_input: str
+    outputs: Annotated[list[dict[str, str]], operator.add]
     steps: Annotated[list[dict[str, Any]], operator.add]
 
 
 def execute_pipeline_graph(request: OrchestrationRunRequest) -> dict[str, Any]:
-    ordered_nodes = topological_nodes(request.pipeline.nodes, request.pipeline.edges)
+    graph_spec = build_graph_spec(request.pipeline.nodes, request.pipeline.edges)
+    ordered_nodes = graph_spec["ordered_nodes"]
     if not ordered_nodes:
-        final_output = f"Execution completed without nodes. Input: {request.initialInput.content}"
-        return {"final_output": final_output, "steps": []}
+        empty_output = f"Execution completed without nodes. Input: {request.initialInput.content}"
+        return {"final_output": empty_output, "steps": []}
 
     agents_by_id = {str(agent.id): agent for agent in request.agents}
+    node_names = {node_id: f"node_{index}" for index, node_id in enumerate(graph_spec["nodes_by_id"], start=1)}
 
     builder = StateGraph(PipelineState)
-    previous_name = START
     for index, node in enumerate(ordered_nodes, start=1):
-        node_name = f"node_{index}"
-        builder.add_node(node_name, build_agent_node(request, node, agents_by_id, index))
-        builder.add_edge(previous_name, node_name)
-        previous_name = node_name
-    builder.add_edge(previous_name, END)
+        node_id = str(node["id"])
+        builder.add_node(
+            node_names[node_id],
+            build_agent_node(
+                request=request,
+                node=node,
+                agents_by_id=agents_by_id,
+                index=index,
+                predecessor_ids=graph_spec["incoming"][node_id],
+            ),
+        )
+
+    for node_id in graph_spec["nodes_by_id"]:
+        source_name = node_names[node_id]
+        predecessors = graph_spec["incoming"][node_id]
+        successors = graph_spec["outgoing"][node_id]
+        if not predecessors:
+            builder.add_edge(START, source_name)
+        for target_id in successors:
+            builder.add_edge(source_name, node_names[target_id])
+        if not successors:
+            builder.add_edge(source_name, END)
 
     graph = builder.compile()
-    return graph.invoke(
+    result = graph.invoke(
         {
-            "current_input": request.initialInput.content,
-            "previous_outputs": {},
-            "final_output": "",
+            "initial_input": request.initialInput.content,
+            "outputs": [],
             "steps": [],
         }
     )
+    outputs_by_node = output_map(result["outputs"])
+    return {
+        "final_output": compute_final_output(outputs_by_node, graph_spec["terminal_ids"], graph_spec["ordered_ids"]),
+        "steps": sorted(result["steps"], key=lambda step: step["index"]),
+    }
 
 
 def build_agent_node(
@@ -51,6 +72,7 @@ def build_agent_node(
     node: dict[str, Any],
     agents_by_id: dict[str, AgentPayload],
     index: int,
+    predecessor_ids: list[str],
 ):
     def run_agent(state: PipelineState) -> dict[str, Any]:
         started_at = datetime.now(timezone.utc)
@@ -60,28 +82,26 @@ def build_agent_node(
         if agent is None:
             raise ValueError(f"Node {node_id} references missing agent {agent_id}.")
 
+        direct_inputs = direct_predecessor_outputs(output_map(state["outputs"]), predecessor_ids)
+        input_content = node_input(state["initial_input"], direct_inputs)
         context = {
-            "previousOutputs": state["previous_outputs"],
-            "initialInput": request.initialInput.content,
+            "previousOutputs": direct_inputs,
+            "initialInput": state["initial_input"],
         }
         message = A2AMessage(
             executionId=request.executionId,
-            senderAgentId="system" if index == 1 else "previous-agent",
+            senderAgentId="system" if not predecessor_ids else "direct-predecessors",
             receiverAgentId=agent.id,
-            content=state["current_input"],
+            content=input_content,
             context=context,
             metadata={"stepIndex": index, "pipelineId": str(request.pipeline.id), "nodeId": node_id},
         )
-        tool_calls = run_allowed_tools(agent.allowedTools, state["current_input"], context)
+        tool_calls = run_allowed_tools(agent.allowedTools, input_content, context)
         output = generate_agent_output(agent, message.content, context, tool_calls)
         finished_at = datetime.now(timezone.utc)
-        previous_outputs = dict(state["previous_outputs"])
-        previous_outputs[node_id] = output
 
         return {
-            "current_input": output,
-            "previous_outputs": previous_outputs,
-            "final_output": output,
+            "outputs": [{"nodeId": node_id, "output": output}],
             "steps": [
                 {
                     "index": index,
@@ -102,26 +122,64 @@ def build_agent_node(
     return run_agent
 
 
-def topological_nodes(nodes: list[dict[str, Any]], edges: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def build_graph_spec(nodes: list[dict[str, Any]], edges: list[dict[str, Any]]) -> dict[str, Any]:
     nodes_by_id = {str(node["id"]): node for node in nodes if node.get("id")}
     indegree = {node_id: 0 for node_id in nodes_by_id}
     outgoing = {node_id: [] for node_id in nodes_by_id}
+    incoming = {node_id: [] for node_id in nodes_by_id}
 
     for edge in edges:
         source = str(edge.get("source", ""))
         target = str(edge.get("target", ""))
         if source in nodes_by_id and target in nodes_by_id:
             outgoing[source].append(target)
+            incoming[target].append(source)
             indegree[target] += 1
 
     queue = [node_id for node_id, count in indegree.items() if count == 0]
-    ordered: list[dict[str, Any]] = []
+    ordered_ids: list[str] = []
     while queue:
         node_id = queue.pop(0)
-        ordered.append(nodes_by_id[node_id])
+        ordered_ids.append(node_id)
         for target in outgoing[node_id]:
             indegree[target] -= 1
             if indegree[target] == 0:
                 queue.append(target)
 
-    return ordered if len(ordered) == len(nodes_by_id) else []
+    if len(ordered_ids) != len(nodes_by_id):
+        ordered_ids = []
+
+    return {
+        "nodes_by_id": nodes_by_id,
+        "ordered_ids": ordered_ids,
+        "ordered_nodes": [nodes_by_id[node_id] for node_id in ordered_ids],
+        "incoming": incoming,
+        "outgoing": outgoing,
+        "terminal_ids": [node_id for node_id in ordered_ids if not outgoing[node_id]],
+    }
+
+
+def output_map(outputs: list[dict[str, str]]) -> dict[str, str]:
+    return {item["nodeId"]: item["output"] for item in outputs if item.get("nodeId")}
+
+
+def direct_predecessor_outputs(outputs_by_node: dict[str, str], predecessor_ids: list[str]) -> dict[str, str]:
+    return {node_id: outputs_by_node[node_id] for node_id in predecessor_ids if node_id in outputs_by_node}
+
+
+def node_input(initial_input: str, direct_inputs: dict[str, str]) -> str:
+    if not direct_inputs:
+        return initial_input
+    if len(direct_inputs) == 1:
+        return next(iter(direct_inputs.values()))
+    return "\n\n".join(f"Output from {node_id}:\n{output}" for node_id, output in direct_inputs.items())
+
+
+def compute_final_output(outputs_by_node: dict[str, str], terminal_ids: list[str], ordered_ids: list[str]) -> str:
+    terminal_outputs = [outputs_by_node[node_id] for node_id in terminal_ids if node_id in outputs_by_node]
+    if not terminal_outputs and ordered_ids:
+        last_output = outputs_by_node.get(ordered_ids[-1])
+        return last_output or ""
+    if len(terminal_outputs) == 1:
+        return terminal_outputs[0]
+    return "\n\n".join(terminal_outputs)

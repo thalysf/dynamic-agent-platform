@@ -775,6 +775,166 @@ Próximo passo recomendado:
 Evoluir execução assíncrona/streaming para status real por step quando o backend estiver pronto para isso.
 ```
 
+---
+
+### Registro 008 — Playground com grafo animado, paralelismo e balões de atividade
+
+Status:
+
+```txt
+Concluído
+```
+
+Resumo:
+
+O Playground deixou de representar a execução como uma lista linear e passou a desenhar o grafo salvo da pipeline. A visualização agora calcula níveis do DAG a partir dos nodes/edges do React Flow, permitindo mostrar branches paralelos corretamente. Por exemplo, se `Agent A` aponta para `Agent B` e também para `Agent C`, `B` e `C` aparecem no mesmo nível visual; etapas seguintes aparecem apenas depois de suas dependências. Também foram adicionadas conexões animadas entre nodes e balões de atividade para o step em execução, indicando ações como preparar prompt, checar tools e enviar contexto aos próximos agentes.
+
+Arquivos criados/alterados:
+
+```txt
+AGENTS.md
+frontend/src/pages/PlaygroundPage.tsx
+frontend/src/styles.css
+```
+
+Decisões tomadas:
+
+- A paleta da parte animada foi reduzida para azul escuro e verde, removendo a faixa amarelo/azul/verde anterior.
+- O grafo usa uma ordenação por níveis derivada das dependências, não apenas uma sequência topológica achatada.
+- Edges são desenhadas em SVG e mudam de estado conforme a execução visual avança: pendente, ativa, concluída ou falha.
+- A animação continua sendo uma simulação visual no frontend enquanto o backend executa de forma síncrona; ao final, a tela sincroniza com os traces reais persistidos.
+- Os balões explicam o que o step ativo está fazendo sem substituir os cards reais de input/output/tool calls.
+
+Validações executadas:
+
+```txt
+frontend/npm run build
+docker compose up --build -d frontend
+GET http://localhost:5173/#playground
+GET http://localhost:8080/api/health
+docker compose ps
+git diff --check
+```
+
+Pendências:
+
+- Quando houver execução assíncrona ou streaming no backend, trocar o avanço simulado por eventos reais por step.
+- Adicionar testes de UI para grafos com branches paralelos.
+
+Próximo passo recomendado:
+
+```txt
+Criar execução assíncrona com status por step para alimentar a animação com progresso real.
+```
+
+---
+
+### Registro 009 — Correção de contexto por arestas diretas no DAG
+
+Status:
+
+```txt
+Concluído
+```
+
+Resumo:
+
+Foi corrigida a semântica de passagem de contexto no orchestrator. O runtime não trata mais a ordenação topológica como uma fila linear. Cada node agora recebe apenas o output dos seus predecessores diretos; branches paralelos não vazam contexto entre si. Quando um node possui múltiplos predecessores, ele recebe um contexto agregado apenas desses predecessores. Também foi ajustado o Playground para reduzir cortes visuais durante a execução, com espaçamento calculado a partir da altura real dos cards, padding extra para balões e área do grafo sem clipping interno.
+
+Arquivos criados/alterados:
+
+```txt
+AGENTS.md
+frontend/src/pages/PlaygroundPage.tsx
+frontend/src/styles.css
+orchestrator/app/graph/pipeline_graph.py
+orchestrator/tests/test_main.py
+```
+
+Decisões tomadas:
+
+- O LangGraph agora é montado com as arestas reais do DAG em vez de uma cadeia linear artificial.
+- `outputs` e `steps` usam reducers para acumular resultados de branches paralelos sem sobrescrever estado.
+- Inputs de agentes são construídos a partir dos predecessores diretos:
+  - sem predecessor: input inicial do usuário;
+  - um predecessor: output daquele predecessor;
+  - múltiplos predecessores: agregação dos outputs diretos.
+- O output final vem dos nodes terminais do grafo.
+- O teste de branching cobre o caso `A -> B`, `A -> C`, `B -> D`, `C -> D`, garantindo que `C` não receba o output de `B` e que `D` receba `B` e `C`.
+
+Validações executadas:
+
+```txt
+orchestrator/python -m pytest
+frontend/npm run build
+docker compose up --build -d orchestrator frontend
+GET http://localhost:8080/api/health
+GET http://localhost:8000/health
+GET http://localhost:5173/#playground
+docker compose ps
+git diff --check
+```
+
+Pendências:
+
+- Criar streaming ou polling real por step para substituir a animação simulada do Playground por status emitidos pelo orchestrator.
+
+Próximo passo recomendado:
+
+```txt
+Projetar execução assíncrona com eventos de progresso por node.
+```
+
+### Registro 010 — Playground interativo com viewport acompanhando execução
+
+Status:
+
+```txt
+Concluído
+```
+
+Resumo:
+
+O Playground foi refinado para usar React Flow também na visualização de execução, mantendo a paleta existente. A pipeline agora pode ser arrastada e navegada com zoom/pan como no Studio, e durante a execução o viewport acompanha e centraliza os steps ativos, evitando que cards sejam cortados mesmo em fluxos com múltiplos estágios. A linha inferior de continuidade teve o azul escuro trocado por um azul mais claro e nítido, preservando o verde da identidade visual.
+
+Arquivos criados/alterados:
+
+```txt
+AGENTS.md
+frontend/src/pages/PlaygroundPage.tsx
+frontend/src/styles.css
+```
+
+Decisões tomadas:
+
+- A visualização runtime passou a usar `ReactFlowProvider`, `useReactFlow` e `fitView` para controlar o viewport de forma estável.
+- `nodeTypes` foi mantido fora do componente para evitar recriações desnecessárias.
+- Os nodes de execução continuam com a coloração escura/verde/azul já aprovada, mas o canvas agora permite pan/zoom e mini mapa.
+- A faixa inferior de continuidade usa azul claro com verde para ficar mais minimalista e legível.
+
+Validações executadas:
+
+```txt
+frontend/npm run build
+orchestrator/python -m pytest
+docker compose up --build -d frontend
+GET http://localhost:8080/api/health
+GET http://localhost:8000/health
+GET http://localhost:5173/#playground
+docker compose ps
+git diff --check
+```
+
+Pendências:
+
+- Evoluir a execução para eventos reais por node, substituindo a animação temporizada por progresso emitido pelo orchestrator.
+
+Próximo passo recomendado:
+
+```txt
+Implementar streaming ou polling de progresso por step no Playground.
+```
+
 ## 9. Contratos importantes
 
 ### Backend para Orchestrator

@@ -1,5 +1,19 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Edge } from '@xyflow/react';
+import {
+  Background,
+  Controls,
+  Edge as FlowEdge,
+  Handle,
+  MiniMap,
+  Node as FlowNode,
+  NodeProps,
+  NodeTypes,
+  Position,
+  ReactFlow,
+  ReactFlowProvider,
+  useReactFlow,
+} from '@xyflow/react';
+import '@xyflow/react/dist/style.css';
 
 import {
   Agent,
@@ -32,6 +46,10 @@ type LiveStatus = 'pending' | 'running' | 'completed' | 'failed';
 type LiveStep = {
   id: string;
   index: number;
+  level: number;
+  row: number;
+  x: number;
+  y: number;
   nodeId: string;
   agentId: string | null;
   label: string;
@@ -39,14 +57,73 @@ type LiveStep = {
   status: LiveStatus;
 };
 
-function orderNodes(nodes: AgentNode[], edges: Edge[]): AgentNode[] {
-  if (!nodes.length) {
-    return [];
-  }
+type LiveEdge = {
+  id: string;
+  source: string;
+  target: string;
+};
 
+type GraphPlan = {
+  nodes: LiveStep[];
+  edges: LiveEdge[];
+};
+
+type RuntimeNodeData = {
+  index: number;
+  label: string;
+  description: string;
+  status: LiveStatus;
+  activity: string;
+};
+
+type RuntimeNode = FlowNode<RuntimeNodeData, 'runtime'>;
+type RuntimeEdge = FlowEdge;
+
+const EMPTY_GRAPH_PLAN: GraphPlan = {
+  nodes: [],
+  edges: [],
+};
+
+const ACTIVITY_MESSAGES = [
+  'recebendo contexto de entrada',
+  'preparando prompt e memoria curta',
+  'checando tools permitidas',
+  'gerando resposta do agente',
+  'enviando contexto para os proximos steps',
+];
+
+const GRAPH_NODE_WIDTH = 240;
+const GRAPH_NODE_HEIGHT = 188;
+const GRAPH_COLUMN_GAP = 360;
+const GRAPH_ROW_GAP = 130;
+
+function RuntimeNodeView({ data }: NodeProps<RuntimeNode>) {
+  return (
+    <div className={`runtime-node-card ${data.status}`}>
+      <Handle className="runtime-handle" type="target" position={Position.Left} />
+      {data.status === 'running' ? <div className="runtime-node-bubble">Etapa {data.index} esta {data.activity}</div> : null}
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase text-slate-400">Step {data.index}</p>
+          <h3 className="mt-1 line-clamp-2 font-semibold text-white">{data.label}</h3>
+        </div>
+        <span className={`rounded border px-2 py-1 text-xs font-medium ${statusClass(data.status)}`}>{statusLabel(data.status)}</span>
+      </div>
+      <p className="mt-3 line-clamp-3 text-sm leading-6 text-slate-300">{data.description}</p>
+      <Handle className="runtime-handle" type="source" position={Position.Right} />
+    </div>
+  );
+}
+
+const nodeTypes: NodeTypes = {
+  runtime: RuntimeNodeView,
+};
+
+function levelNodes(nodes: AgentNode[], edges: FlowEdge[]) {
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
   const incoming = new Map(nodes.map((node) => [node.id, 0]));
   const outgoing = new Map(nodes.map((node) => [node.id, [] as string[]]));
+  const levels = new Map(nodes.map((node) => [node.id, 0]));
 
   for (const edge of edges) {
     if (!nodeById.has(edge.source) || !nodeById.has(edge.target)) {
@@ -66,6 +143,7 @@ function orderNodes(nodes: AgentNode[], edges: Edge[]): AgentNode[] {
     }
     ordered.push(node);
     for (const target of outgoing.get(node.id) ?? []) {
+      levels.set(target, Math.max(levels.get(target) ?? 0, (levels.get(node.id) ?? 0) + 1));
       const nextIncoming = (incoming.get(target) ?? 0) - 1;
       incoming.set(target, nextIncoming);
       if (nextIncoming === 0) {
@@ -77,49 +155,127 @@ function orderNodes(nodes: AgentNode[], edges: Edge[]): AgentNode[] {
     }
   }
 
-  return ordered.length === nodes.length ? ordered : nodes;
+  const source = ordered.length === nodes.length ? ordered : nodes;
+  return source.map((node) => ({ node, level: levels.get(node.id) ?? 0 }));
 }
 
-function buildLiveSteps(pipeline: Pipeline | null, agents: Agent[]): LiveStep[] {
+function buildGraphPlan(pipeline: Pipeline | null, agents: Agent[]): GraphPlan {
   if (!pipeline) {
-    return [];
+    return EMPTY_GRAPH_PLAN;
   }
-  const agentById = new Map(agents.map((agent) => [agent.id, agent]));
-  const nodes = parseFlow<AgentNode[]>(pipeline.nodesJson, []);
-  const edges = parseFlow<Edge[]>(pipeline.edgesJson, []);
 
-  return orderNodes(nodes, edges).map((node, index) => {
-    const agent = agentById.get(node.data.agentId);
+  const parsedNodes = parseFlow<AgentNode[]>(pipeline.nodesJson, []);
+  const parsedEdges = parseFlow<FlowEdge[]>(pipeline.edgesJson, []);
+  const nodeIds = new Set(parsedNodes.map((node) => node.id));
+  const validEdges = parsedEdges.filter((edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target));
+  const leveledNodes = levelNodes(parsedNodes, validEdges);
+  const agentById = new Map(agents.map((agent) => [agent.id, agent]));
+  const grouped = new Map<number, Array<{ node: AgentNode; level: number }>>();
+
+  for (const item of leveledNodes) {
+    grouped.set(item.level, [...(grouped.get(item.level) ?? []), item]);
+  }
+
+  const maxRows = Math.max(1, ...Array.from(grouped.values()).map((group) => group.length));
+  const rowSpacing = GRAPH_NODE_HEIGHT + GRAPH_ROW_GAP;
+
+  const liveNodes = leveledNodes.map((item, index) => {
+    const agent = agentById.get(item.node.data.agentId);
+    const siblings = grouped.get(item.level) ?? [];
+    const row = Math.max(0, siblings.findIndex((sibling) => sibling.node.id === item.node.id));
+    const x = item.level * GRAPH_COLUMN_GAP;
+    const groupOffset = ((maxRows - siblings.length) * rowSpacing) / 2;
+    const y = groupOffset + row * rowSpacing;
+    const status: LiveStatus = item.level === 0 ? 'running' : 'pending';
+
     return {
-      id: node.id,
+      id: item.node.id,
       index: index + 1,
-      nodeId: node.id,
-      agentId: node.data.agentId,
-      label: agent?.name || node.data.label || `Step ${index + 1}`,
+      level: item.level,
+      row,
+      x,
+      y,
+      nodeId: item.node.id,
+      agentId: item.node.data.agentId,
+      label: agent?.name || item.node.data.label || `Step ${index + 1}`,
       description: agent?.description || agent?.systemPrompt || 'Agente em execucao.',
-      status: index === 0 ? 'running' : 'pending',
+      status,
     };
   });
+
+  return {
+    nodes: liveNodes,
+    edges: validEdges.map((edge) => ({
+      id: edge.id,
+      source: edge.source,
+      target: edge.target,
+    })),
+  };
 }
 
-function nextLiveSteps(current: LiveStep[]): LiveStep[] {
-  const runningIndex = current.findIndex((step) => step.status === 'running');
-  if (runningIndex === -1) {
+function resetGraphSteps(plan: GraphPlan, status: LiveStatus = 'pending'): LiveStep[] {
+  return plan.nodes.map((step) => ({ ...step, status }));
+}
+
+function startGraphSteps(plan: GraphPlan): LiveStep[] {
+  return plan.nodes.map((step) => ({
+    ...step,
+    status: (step.level === 0 ? 'running' : 'pending') as LiveStatus,
+  }));
+}
+
+function nextGraphSteps(current: LiveStep[]): LiveStep[] {
+  const runningLevels = current.filter((step) => step.status === 'running').map((step) => step.level);
+  if (!runningLevels.length) {
     return current;
   }
 
-  return current.map((step, index) => {
-    if (index < runningIndex) {
+  const runningLevel = Math.min(...runningLevels);
+  const maxLevel = Math.max(...current.map((step) => step.level));
+  if (runningLevel >= maxLevel) {
+    return current;
+  }
+
+  return current.map((step) => {
+    if (step.level <= runningLevel) {
       return { ...step, status: 'completed' };
     }
-    if (index === runningIndex) {
-      return { ...step, status: 'completed' };
-    }
-    if (index === runningIndex + 1) {
+    if (step.level === runningLevel + 1) {
       return { ...step, status: 'running' };
     }
     return { ...step, status: 'pending' };
   });
+}
+
+function liveEdgeState(edge: LiveEdge, steps: LiveStep[]) {
+  const source = steps.find((step) => step.id === edge.source);
+  const target = steps.find((step) => step.id === edge.target);
+  if (!source || !target) {
+    return 'pending';
+  }
+  if (source.status === 'failed' || target.status === 'failed') {
+    return 'failed';
+  }
+  if (source.status === 'completed' && target.status === 'completed') {
+    return 'completed';
+  }
+  if (source.status === 'completed' && target.status === 'running') {
+    return 'active';
+  }
+  return 'pending';
+}
+
+function edgeColor(state: string) {
+  if (state === 'active') {
+    return '#10b981';
+  }
+  if (state === 'completed') {
+    return 'rgba(16, 185, 129, 0.78)';
+  }
+  if (state === 'failed') {
+    return 'rgba(248, 113, 113, 0.9)';
+  }
+  return 'rgba(148, 163, 184, 0.36)';
 }
 
 function statusLabel(status: LiveStatus | Execution['status']) {
@@ -161,6 +317,96 @@ function prettyJson(value: string | null) {
   }
 }
 
+function RuntimeFlow({
+  graphPlan,
+  liveSteps,
+  activityTick,
+}: {
+  graphPlan: GraphPlan;
+  liveSteps: LiveStep[];
+  activityTick: number;
+}) {
+  const { fitView } = useReactFlow<RuntimeNode, RuntimeEdge>();
+  const displayedSteps = liveSteps.length ? liveSteps : resetGraphSteps(graphPlan);
+
+  const nodes = useMemo<RuntimeNode[]>(
+    () =>
+      displayedSteps.map((step) => ({
+        id: step.id,
+        type: 'runtime',
+        position: { x: step.x, y: step.y },
+        width: GRAPH_NODE_WIDTH,
+        height: GRAPH_NODE_HEIGHT,
+        draggable: false,
+        data: {
+          index: step.index,
+          label: step.label,
+          description: step.description,
+          status: step.status,
+          activity: ACTIVITY_MESSAGES[(activityTick + step.level + step.row) % ACTIVITY_MESSAGES.length],
+        },
+      })),
+    [activityTick, displayedSteps],
+  );
+
+  const edges = useMemo<RuntimeEdge[]>(
+    () =>
+      graphPlan.edges.map((edge) => {
+        const state = liveEdgeState(edge, displayedSteps);
+        return {
+          id: edge.id,
+          source: edge.source,
+          target: edge.target,
+          type: 'smoothstep',
+          animated: state === 'active',
+          className: `runtime-edge ${state}`,
+          style: { stroke: edgeColor(state), strokeWidth: state === 'active' ? 3 : 2 },
+        };
+      }),
+    [displayedSteps, graphPlan.edges],
+  );
+
+  const activeNodeIds = useMemo(() => displayedSteps.filter((step) => step.status === 'running').map((step) => step.id), [displayedSteps]);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      const targetNodes = activeNodeIds.length ? activeNodeIds.map((id) => ({ id })) : undefined;
+      void fitView({
+        nodes: targetNodes,
+        padding: activeNodeIds.length ? 0.75 : 0.25,
+        duration: 500,
+        minZoom: 0.45,
+        maxZoom: 1.05,
+      });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeNodeIds, fitView, nodes.length]);
+
+  return (
+    <div className="runtime-flow">
+      <ReactFlow
+        edges={edges}
+        fitView
+        maxZoom={1.4}
+        minZoom={0.25}
+        nodeTypes={nodeTypes}
+        nodes={nodes}
+        nodesDraggable={false}
+        panOnDrag
+        panOnScroll
+        proOptions={{ hideAttribution: true }}
+        zoomOnDoubleClick={false}
+        zoomOnPinch
+        zoomOnScroll
+      >
+        <Background color="rgba(148, 163, 184, 0.18)" gap={28} />
+        <Controls />
+        <MiniMap pannable zoomable />
+      </ReactFlow>
+    </div>
+  );
+}
+
 function PlaygroundPage({
   selectedProject,
   selectedPipeline,
@@ -179,8 +425,9 @@ function PlaygroundPage({
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const [liveSteps, setLiveSteps] = useState<LiveStep[]>([]);
   const [liveMode, setLiveMode] = useState<'idle' | 'running' | 'completed' | 'failed'>('idle');
+  const [activityTick, setActivityTick] = useState(0);
 
-  const pipelinePlan = useMemo(() => buildLiveSteps(selectedPipeline, agents), [agents, selectedPipeline]);
+  const graphPlan = useMemo(() => buildGraphPlan(selectedPipeline, agents), [agents, selectedPipeline]);
   const completedCount = liveSteps.filter((step) => step.status === 'completed').length;
   const progressPercent = liveSteps.length ? Math.round((completedCount / liveSteps.length) * 100) : 0;
 
@@ -188,17 +435,19 @@ function PlaygroundPage({
     setSelectedExecution(null);
     setSteps([]);
     setValidationErrors([]);
-    setLiveSteps(pipelinePlan.map((step) => ({ ...step, status: 'pending' })));
+    setLiveSteps(resetGraphSteps(graphPlan));
     setLiveMode('idle');
-  }, [pipelinePlan, selectedPipeline?.id]);
+    setActivityTick(0);
+  }, [graphPlan, selectedPipeline?.id]);
 
   useEffect(() => {
     if (liveMode !== 'running') {
       return;
     }
     const timer = window.setInterval(() => {
-      setLiveSteps((current) => nextLiveSteps(current));
-    }, 900);
+      setLiveSteps((current) => nextGraphSteps(current));
+      setActivityTick((current) => current + 1);
+    }, 1000);
     return () => window.clearInterval(timer);
   }, [liveMode]);
 
@@ -206,7 +455,7 @@ function PlaygroundPage({
     setSelectedExecution(execution);
     setSteps(await listExecutionSteps(execution.id));
     setLiveMode('idle');
-    setLiveSteps(pipelinePlan.map((step) => ({ ...step, status: execution.status === 'COMPLETED' ? 'completed' : 'pending' })));
+    setLiveSteps(resetGraphSteps(graphPlan, execution.status === 'COMPLETED' ? 'completed' : 'pending'));
   }
 
   async function executePipeline() {
@@ -217,14 +466,17 @@ function PlaygroundPage({
     onError(null);
     setSelectedExecution(null);
     setSteps([]);
-    setLiveSteps(pipelinePlan);
+    setActivityTick(0);
+    setLiveSteps(startGraphSteps(graphPlan));
     setLiveMode('running');
     try {
       const validation = await validatePipeline(selectedProject.id, selectedPipeline.id);
       setValidationErrors(validation.errors);
       if (!validation.valid) {
         setLiveMode('failed');
-        setLiveSteps((current) => current.map((step, index) => ({ ...step, status: index === 0 ? 'failed' : 'pending' })));
+        setLiveSteps((current) =>
+          current.map((step) => ({ ...step, status: (step.level === 0 ? 'failed' : 'pending') as LiveStatus })),
+        );
         return;
       }
       const execution = await runPipeline(selectedProject.id, selectedPipeline.id, initialInput);
@@ -234,7 +486,7 @@ function PlaygroundPage({
       setSteps(executionSteps);
       setLiveMode(execution.status === 'COMPLETED' ? 'completed' : 'failed');
       setLiveSteps((current) =>
-        current.map((step) => ({ ...step, status: execution.status === 'COMPLETED' ? 'completed' : 'failed' })),
+        current.map((step) => ({ ...step, status: (execution.status === 'COMPLETED' ? 'completed' : 'failed') as LiveStatus })),
       );
     } catch (reason) {
       setLiveMode('failed');
@@ -331,8 +583,8 @@ function PlaygroundPage({
                 <h2 className="mt-1 text-2xl font-semibold">{selectedPipeline?.name || 'Nenhuma pipeline selecionada'}</h2>
                 <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-200">
                   {liveMode === 'running'
-                    ? 'Acompanhe a esteira de agentes enquanto o orchestrator processa a execucao.'
-                    : 'Execute uma pipeline para ver cada agente entrar em acao e depois confira os traces reais.'}
+                    ? 'Acompanhe dependencias, branches paralelos e o step ativo da execucao.'
+                    : 'Execute uma pipeline para ver o grafo em movimento e depois conferir os traces reais.'}
                 </p>
               </div>
               <div className={`w-fit rounded border px-3 py-2 text-sm font-semibold ${statusClass(liveMode === 'idle' ? 'pending' : liveMode)}`}>
@@ -341,28 +593,13 @@ function PlaygroundPage({
             </div>
 
             <div className="mt-5 h-2 overflow-hidden rounded bg-slate-800">
-              <div className="h-full rounded bg-gradient-to-r from-cyan-400 via-emerald-400 to-amber-300 transition-all duration-500" style={{ width: `${progressPercent}%` }} />
+              <div className="h-full rounded bg-gradient-to-r from-sky-900 to-emerald-400 transition-all duration-500" style={{ width: `${progressPercent}%` }} />
             </div>
 
-            <div className="mt-5 grid gap-3 lg:grid-cols-3">
-              {(liveSteps.length ? liveSteps : pipelinePlan).map((step) => (
-                <article className={`execution-step-card ${step.status}`} key={step.id}>
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-xs font-semibold uppercase text-slate-400">Step {step.index}</p>
-                      <h3 className="mt-1 font-semibold text-white">{step.label}</h3>
-                    </div>
-                    <span className={`rounded border px-2 py-1 text-xs font-medium ${statusClass(step.status)}`}>{statusLabel(step.status)}</span>
-                  </div>
-                  <p className="mt-3 line-clamp-3 text-sm leading-6 text-slate-300">{step.description}</p>
-                  {step.status === 'running' ? (
-                    <div className="mt-4 flex items-center gap-2 text-xs font-medium text-cyan-200">
-                      <span className="execution-pulse" />
-                      Processando contexto, tools e resposta do agente
-                    </div>
-                  ) : null}
-                </article>
-              ))}
+            <div className="mt-5 overflow-hidden rounded border border-slate-700/40">
+              <ReactFlowProvider>
+                <RuntimeFlow activityTick={activityTick} graphPlan={graphPlan} liveSteps={liveSteps} />
+              </ReactFlowProvider>
             </div>
           </div>
         </article>

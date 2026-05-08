@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import {
   Background,
   Controls,
   Edge as FlowEdge,
   Handle,
   MiniMap,
+  MiniMapNodeProps,
   Node as FlowNode,
   NodeProps,
   NodeTypes,
@@ -54,6 +55,7 @@ type LiveStep = {
   agentId: string | null;
   label: string;
   description: string;
+  systemPrompt: string;
   status: LiveStatus;
 };
 
@@ -72,12 +74,14 @@ type RuntimeNodeData = {
   index: number;
   label: string;
   description: string;
+  systemPrompt: string;
   status: LiveStatus;
   activity: string;
 };
 
 type RuntimeNode = FlowNode<RuntimeNodeData, 'runtime'>;
 type RuntimeEdge = FlowEdge;
+type MiniMapStep = Pick<RuntimeNodeData, 'index' | 'label' | 'status'>;
 
 const EMPTY_GRAPH_PLAN: GraphPlan = {
   nodes: [],
@@ -93,9 +97,14 @@ const ACTIVITY_MESSAGES = [
 ];
 
 const GRAPH_NODE_WIDTH = 240;
-const GRAPH_NODE_HEIGHT = 188;
+const GRAPH_NODE_HEIGHT = 214;
 const GRAPH_COLUMN_GAP = 360;
 const GRAPH_ROW_GAP = 130;
+const MiniMapStepContext = createContext<Map<string, MiniMapStep>>(new Map());
+
+function compactMiniMapLabel(value: string) {
+  return value.length > 18 ? `${value.slice(0, 17)}...` : value;
+}
 
 function RuntimeNodeView({ data }: NodeProps<RuntimeNode>) {
   return (
@@ -110,6 +119,15 @@ function RuntimeNodeView({ data }: NodeProps<RuntimeNode>) {
         <span className={`rounded border px-2 py-1 text-xs font-medium ${statusClass(data.status)}`}>{statusLabel(data.status)}</span>
       </div>
       <p className="mt-3 line-clamp-3 text-sm leading-6 text-slate-300">{data.description}</p>
+      {data.systemPrompt ? (
+        <div className="runtime-prompt-preview" tabIndex={0}>
+          <span className="runtime-prompt-label">System prompt</span>
+          <p className="runtime-prompt-text">{data.systemPrompt}</p>
+          <div className="runtime-prompt-popover" role="tooltip">
+            {data.systemPrompt}
+          </div>
+        </div>
+      ) : null}
       <Handle className="runtime-handle" type="source" position={Position.Right} />
     </div>
   );
@@ -118,6 +136,72 @@ function RuntimeNodeView({ data }: NodeProps<RuntimeNode>) {
 const nodeTypes: NodeTypes = {
   runtime: RuntimeNodeView,
 };
+
+function RuntimeMiniMapNode({
+  id,
+  x,
+  y,
+  width,
+  height,
+  borderRadius,
+  color,
+  strokeColor,
+  strokeWidth,
+  className,
+  shapeRendering,
+  selected,
+  onClick,
+}: MiniMapNodeProps) {
+  const steps = useContext(MiniMapStepContext);
+  const step = steps.get(id);
+  const fill = color ?? '#475569';
+  const stroke = selected ? '#ecfeff' : (strokeColor ?? 'rgba(219, 234, 254, 0.72)');
+  const title = step ? `Step ${step.index} - ${step.label}` : id;
+
+  return (
+    <g className={className} onClick={(event) => onClick?.(event, id)}>
+      <title>{title}</title>
+      <rect
+        x={x}
+        y={y}
+        width={width}
+        height={height}
+        rx={borderRadius}
+        ry={borderRadius}
+        fill={fill}
+        stroke={stroke}
+        strokeWidth={selected ? 5 : strokeWidth}
+        shapeRendering={shapeRendering}
+      />
+      {step ? (
+        <>
+          <text
+            x={x + 14}
+            y={y + 42}
+            fill="#ecfeff"
+            fontFamily="Inter, ui-sans-serif, system-ui"
+            fontSize="28"
+            fontWeight="700"
+            pointerEvents="none"
+          >
+            Step {step.index}
+          </text>
+          <text
+            x={x + 14}
+            y={y + 78}
+            fill="rgba(236, 254, 255, 0.88)"
+            fontFamily="Inter, ui-sans-serif, system-ui"
+            fontSize="24"
+            fontWeight="600"
+            pointerEvents="none"
+          >
+            {compactMiniMapLabel(step.label)}
+          </text>
+        </>
+      ) : null}
+    </g>
+  );
+}
 
 function levelNodes(nodes: AgentNode[], edges: FlowEdge[]) {
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
@@ -199,6 +283,7 @@ function buildGraphPlan(pipeline: Pipeline | null, agents: Agent[]): GraphPlan {
       agentId: item.node.data.agentId,
       label: agent?.name || item.node.data.label || `Step ${index + 1}`,
       description: agent?.description || agent?.systemPrompt || 'Agente em execucao.',
+      systemPrompt: agent?.systemPrompt || '',
       status,
     };
   });
@@ -342,6 +427,7 @@ function RuntimeFlow({
           index: step.index,
           label: step.label,
           description: step.description,
+          systemPrompt: step.systemPrompt,
           status: step.status,
           activity: ACTIVITY_MESSAGES[(activityTick + step.level + step.row) % ACTIVITY_MESSAGES.length],
         },
@@ -367,6 +453,10 @@ function RuntimeFlow({
   );
 
   const activeNodeIds = useMemo(() => displayedSteps.filter((step) => step.status === 'running').map((step) => step.id), [displayedSteps]);
+  const miniMapSteps = useMemo(
+    () => new Map(displayedSteps.map((step) => [step.id, { index: step.index, label: step.label, status: step.status }])),
+    [displayedSteps],
+  );
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
@@ -401,7 +491,33 @@ function RuntimeFlow({
       >
         <Background color="rgba(148, 163, 184, 0.18)" gap={28} />
         <Controls />
-        <MiniMap pannable zoomable />
+        <MiniMapStepContext.Provider value={miniMapSteps}>
+          <MiniMap
+            ariaLabel="Mapa resumido da pipeline em execucao"
+            bgColor="rgba(2, 6, 23, 0.88)"
+            maskColor="rgba(15, 23, 42, 0.44)"
+            maskStrokeColor="rgba(219, 234, 254, 0.28)"
+            nodeBorderRadius={8}
+            nodeColor={(node) => {
+              const status = (node.data as RuntimeNodeData | undefined)?.status;
+              if (status === 'running') {
+                return '#5eead4';
+              }
+              if (status === 'completed') {
+                return '#34d399';
+              }
+              if (status === 'failed') {
+                return '#f87171';
+              }
+              return '#475569';
+            }}
+            nodeComponent={RuntimeMiniMapNode}
+            nodeStrokeColor="#ccfbf1"
+            nodeStrokeWidth={3}
+            pannable
+            zoomable
+          />
+        </MiniMapStepContext.Provider>
       </ReactFlow>
     </div>
   );

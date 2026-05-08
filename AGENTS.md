@@ -935,6 +935,93 @@ Próximo passo recomendado:
 Implementar streaming ou polling de progresso por step no Playground.
 ```
 
+### Registro 011 — Refinamento visual dos controles do Playground
+
+Status:
+
+```txt
+Concluído
+```
+
+Resumo:
+
+Foram refinados os controles nativos do React Flow no Playground. Os botões de zoom, centralização e bloqueio deixaram de usar o branco/cinza padrão e passaram para um tema escuro com ícones em azul claro, hover em azul petróleo e melhor integração com o canvas. O minimapa também recebeu fundo escuro, máscara mais suave e nodes coloridos por status. A faixa inferior de continuidade voltou a usar azul turquesa com verde.
+
+Arquivos criados/alterados:
+
+```txt
+AGENTS.md
+frontend/src/pages/PlaygroundPage.tsx
+frontend/src/styles.css
+```
+
+Decisões tomadas:
+
+- O tema dos controles foi feito por CSS escopado em `.runtime-flow` para não afetar outros usos de React Flow.
+- O `MiniMap` recebeu cores por props do próprio React Flow, mantendo o componente nativo.
+- A faixa inferior usa verde azulado e verde para preservar contraste sem ficar estourada.
+
+Validações executadas:
+
+```txt
+frontend/npm run build
+docker compose up --build -d frontend
+GET http://localhost:5173/#playground
+```
+
+Pendências:
+
+- Validar visualmente em diferentes tamanhos de tela quando houver testes de UI automatizados.
+
+Próximo passo recomendado:
+
+```txt
+Adicionar teste visual/integração leve para o Playground quando a suíte de frontend for criada.
+```
+
+### Registro 012 — Minimap informativo e prompt com hover
+
+Status:
+
+```txt
+Concluído
+```
+
+Resumo:
+
+O Playground recebeu dois refinamentos de leitura visual. A faixa inferior de continuidade deixou o turquesa anterior e passou para um verde azulado mais integrado ao layout. O minimapa agora usa um node SVG customizado para mostrar `Step N` e o nome do agente, mantendo cores por status. Os cards de execução também passaram a exibir o system prompt como uma prévia compacta de duas linhas, com o conteúdo completo disponível em popover ao passar o mouse ou focar o bloco.
+
+Arquivos criados/alterados:
+
+```txt
+AGENTS.md
+frontend/src/pages/PlaygroundPage.tsx
+frontend/src/styles.css
+```
+
+Decisões tomadas:
+
+- O `MiniMap` usa `nodeComponent` com contexto local para receber metadados dos steps sem acoplar o componente ao estado global.
+- O texto do minimapa é curto por design: `Step N` e nome do agente truncado, com `title` SVG para leitura completa nativa.
+- O system prompt usa `white-space: pre-wrap` e `overflow-wrap: anywhere` para preservar quebras e evitar estouro visual.
+
+Validações executadas:
+
+```txt
+frontend/npm run build
+docker compose up --build -d frontend
+```
+
+Pendências:
+
+- Validar o tamanho ideal do minimapa em telas menores quando houver teste visual automatizado.
+
+Próximo passo recomendado:
+
+```txt
+Adicionar teste visual do Playground cobrindo minimapa, prompts longos e estados de execução.
+```
+
 ## 9. Contratos importantes
 
 ### Backend para Orchestrator

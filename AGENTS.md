@@ -723,6 +723,58 @@ Próximo passo recomendado:
 Adicionar testes de UI/componentes e seguir refinando ergonomia do Studio e Playground.
 ```
 
+---
+
+### Registro 007 — Playground com esteira animada de execução
+
+Status:
+
+```txt
+Concluído
+```
+
+Resumo:
+
+A tela de Playground foi refinada para mostrar uma esteira visual animada da execução da pipeline. Antes e durante a chamada ao backend, o frontend deriva os steps a partir dos nodes/edges salvos no Studio, ordena os nodes topologicamente e anima o step em execução, avançando para os próximos como uma pipeline amigável de CI/CD. Após a resposta do orchestrator, a tela sincroniza com os traces reais persistidos e mantém o histórico, o resultado final, input, output e tool calls de cada step.
+
+Arquivos criados/alterados:
+
+```txt
+AGENTS.md
+frontend/src/App.tsx
+frontend/src/pages/PlaygroundPage.tsx
+frontend/src/styles.css
+```
+
+Decisões tomadas:
+
+- A animação fica somente no Playground, preservando a separação de responsabilidades entre Home, Projetos, Agentes, Studio e Playground.
+- Como a execução ainda é síncrona no backend, o frontend mostra uma simulação de progresso baseada no grafo salvo e troca para os dados reais assim que a execução retorna.
+- A ordenação visual usa os nodes e edges do React Flow para exibir a sequência esperada dos agentes.
+- Os cards reais de traces foram mantidos e melhorados com status visual, áreas separadas para input/output e tool calls formatadas.
+- As animações respeitam `prefers-reduced-motion`.
+
+Validações executadas:
+
+```txt
+frontend/npm run build
+docker compose up --build -d frontend
+GET http://localhost:5173/#playground
+GET http://localhost:8080/api/health
+git diff --check
+```
+
+Pendências:
+
+- Considerar streaming ou polling real de status de execução no backend/orchestrator para substituir a simulação visual por progresso em tempo real.
+- Adicionar testes de UI/componentes para o Playground animado.
+
+Próximo passo recomendado:
+
+```txt
+Evoluir execução assíncrona/streaming para status real por step quando o backend estiver pronto para isso.
+```
+
 ## 9. Contratos importantes
 
 ### Backend para Orchestrator

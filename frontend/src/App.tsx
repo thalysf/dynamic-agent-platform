@@ -175,6 +175,7 @@ function App() {
 
       {view === 'playground' ? (
         <PlaygroundPage
+          agents={agents}
           busy={busy}
           executions={executions}
           pipelines={pipelines}

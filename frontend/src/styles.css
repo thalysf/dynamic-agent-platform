@@ -297,6 +297,213 @@ body {
   transform: translate(-50%, -50%) rotate(45deg);
 }
 
+.image-preview-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  background: rgba(2, 6, 23, 0.72);
+  padding: 24px;
+}
+
+.image-preview-modal {
+  width: min(960px, 100%);
+  max-height: min(860px, calc(100vh - 48px));
+  overflow: hidden;
+  border: 1px solid rgba(125, 211, 252, 0.36);
+  border-radius: 8px;
+  background:
+    linear-gradient(145deg, rgba(2, 6, 23, 0.98), rgba(15, 23, 42, 0.96)),
+    repeating-linear-gradient(90deg, rgba(148, 163, 184, 0.06) 0 1px, transparent 1px 58px);
+  box-shadow: 0 28px 80px rgba(2, 6, 23, 0.48);
+}
+
+.image-preview-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+  padding: 18px;
+}
+
+.image-preview-close {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid rgba(125, 211, 252, 0.34);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.86);
+  color: #ecfeff;
+  font-weight: 700;
+}
+
+.image-preview-close:hover {
+  background: rgba(8, 47, 73, 0.94);
+}
+
+.image-preview-frame {
+  display: grid;
+  max-height: calc(100vh - 180px);
+  place-items: center;
+  overflow: auto;
+  padding: 18px;
+}
+
+.image-preview-frame img {
+  display: block;
+  max-width: 100%;
+  max-height: calc(100vh - 220px);
+  border-radius: 8px;
+  box-shadow: 0 18px 46px rgba(2, 6, 23, 0.42);
+  object-fit: contain;
+}
+
+.trace-card {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid rgb(226, 232, 240);
+  border-radius: 8px;
+  background: #fff;
+  padding: 20px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+
+.trace-card.failed {
+  border-color: rgb(252, 165, 165);
+  background: rgb(254, 242, 242);
+}
+
+.trace-preview {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  max-height: 192px;
+  overflow: auto;
+  border: 0;
+  border-radius: 8px;
+  padding: 12px;
+  color: rgb(51, 65, 85);
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  text-align: left;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.trace-preview.input {
+  margin-top: 8px;
+  background: rgb(248, 250, 252);
+}
+
+.trace-preview.output {
+  margin-top: 8px;
+  max-height: 256px;
+  background: rgb(236, 253, 245);
+  color: rgb(30, 41, 59);
+  cursor: pointer;
+}
+
+.trace-preview.output:hover {
+  outline: 2px solid rgba(16, 185, 129, 0.28);
+}
+
+.trace-preview.output.failed {
+  background: rgb(254, 226, 226);
+  color: rgb(127, 29, 29);
+}
+
+.trace-preview.output.failed:hover {
+  outline-color: rgba(248, 113, 113, 0.42);
+}
+
+.trace-tool-calls {
+  max-width: 100%;
+  max-height: 256px;
+  overflow: auto;
+  border-radius: 8px;
+  background: rgb(2, 6, 23);
+  color: rgb(241, 245, 249);
+  font-size: 12px;
+  line-height: 1.55;
+  margin-top: 8px;
+  overflow-wrap: anywhere;
+  padding: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.detail-preview-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  background: rgba(2, 6, 23, 0.72);
+  padding: 24px;
+}
+
+.detail-preview-modal {
+  width: min(1120px, 100%);
+  max-height: min(900px, calc(100vh - 48px));
+  overflow: hidden;
+  border: 1px solid rgba(125, 211, 252, 0.34);
+  border-radius: 8px;
+  background: rgb(15, 23, 42);
+  box-shadow: 0 28px 80px rgba(2, 6, 23, 0.48);
+}
+
+.detail-preview-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+  padding: 18px;
+}
+
+.detail-preview-body {
+  display: grid;
+  gap: 14px;
+  max-height: calc(100vh - 168px);
+  overflow: auto;
+  padding: 18px;
+}
+
+.detail-preview-body section {
+  min-width: 0;
+}
+
+.detail-preview-body h3 {
+  color: rgb(165, 243, 252);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+  margin: 0 0 8px;
+  text-transform: uppercase;
+}
+
+.detail-preview-body pre {
+  max-width: 100%;
+  overflow: auto;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 8px;
+  background: rgba(2, 6, 23, 0.72);
+  color: rgb(226, 232, 240);
+  font-size: 12px;
+  line-height: 1.65;
+  margin: 0;
+  min-height: 72px;
+  overflow-wrap: anywhere;
+  padding: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .execution-graph-node {
   position: absolute;
   width: 184px;

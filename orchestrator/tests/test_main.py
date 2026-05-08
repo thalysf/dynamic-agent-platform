@@ -15,6 +15,16 @@ def test_health() -> None:
     assert response.json()["service"] == "agentflow-orchestrator"
 
 
+def test_tool_files_are_served_from_tool_workspace(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("AGENTFLOW_TOOL_WORKDIR", str(tmp_path))
+    (tmp_path / "preview.txt").write_text("hello preview", encoding="utf-8")
+
+    response = client.get("/tool-files/preview.txt")
+
+    assert response.status_code == 200
+    assert response.text == "hello preview"
+
+
 def test_run_orchestration_mock() -> None:
     execution_id = str(uuid4())
     project_id = str(uuid4())
@@ -65,6 +75,58 @@ def test_run_orchestration_mock() -> None:
     assert len(body["steps"]) == 1
     assert body["steps"][0]["nodeId"] == node_id
     assert body["steps"][0]["toolCalls"][0]["toolName"] == "word_count"
+
+
+def test_tool_failure_marks_step_as_failed(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("AGENTFLOW_TOOL_WORKDIR", str(tmp_path))
+    execution_id = str(uuid4())
+    project_id = str(uuid4())
+    pipeline_id = str(uuid4())
+    node_id = str(uuid4())
+    agent_id = str(uuid4())
+
+    response = client.post(
+        "/orchestrations/run",
+        json={
+            "executionId": execution_id,
+            "projectId": project_id,
+            "pipeline": {
+                "id": pipeline_id,
+                "nodes": [
+                    {
+                        "id": node_id,
+                        "type": "agent",
+                        "position": {"x": 0, "y": 0},
+                        "data": {"agentId": agent_id, "label": "Reader"},
+                    }
+                ],
+                "edges": [],
+            },
+            "agents": [
+                {
+                    "id": agent_id,
+                    "projectId": project_id,
+                    "name": "Reader",
+                    "description": None,
+                    "systemPrompt": "Read files",
+                    "agentType": "GENERAL",
+                    "modelProvider": "groq",
+                    "modelName": "llama-3.1-70b-versatile",
+                    "temperature": 0.7,
+                    "allowedTools": ["file_read"],
+                }
+            ],
+            "initialInput": {"content": "Leia um arquivo sobre algo inexistente", "attachments": []},
+        },
+    )
+
+    body = response.json()
+
+    assert response.status_code == 200
+    assert body["status"] == "COMPLETED"
+    assert body["steps"][0]["status"] == "FAILED"
+    assert body["steps"][0]["toolCalls"][0]["toolName"] == "file_read"
+    assert body["steps"][0]["errorMessage"]
 
 
 def test_branching_nodes_receive_only_direct_predecessor_context() -> None:

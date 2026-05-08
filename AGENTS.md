@@ -1118,6 +1118,352 @@ Próximo passo recomendado:
 Adicionar suíte inicial de testes de frontend para fluxos críticos do Playground e Agentes.
 ```
 
+### Registro 015 — Novas tools controladas para agentes
+
+Status:
+
+```txt
+Concluído
+```
+
+Resumo:
+
+Foram adicionadas novas capacidades MCP-like para agentes via registry controlada do orchestrator. Além de `word_count` e `echo_context`, os agentes agora podem receber permissão para `file_write`, `file_read`, `web_search` e `image_generate`. As tools de arquivo ficam restritas a um workspace configurável, a busca web usa uma API pública simples e a geração de imagem é opcional, usando Gemini apenas quando `GEMINI_API_KEY` estiver configurada.
+
+Arquivos criados/alterados:
+
+```txt
+AGENTS.md
+README.md
+spec.md
+.env.example
+.gitignore
+docker-compose.yml
+frontend/src/constants/agents.ts
+frontend/src/pages/AgentsPage.tsx
+orchestrator/app/mcp/tools.py
+orchestrator/tests/test_tools.py
+tool-workspace/.gitkeep
+```
+
+Decisões tomadas:
+
+- As novas tools continuam sendo executadas somente quando listadas em `allowedTools` do agente.
+- `file_write` e `file_read` aceitam apenas caminhos relativos dentro de `AGENTFLOW_TOOL_WORKDIR`, evitando acesso amplo ao repositório ou ao host.
+- `file_write` suporta `content` textual e `contentBase64` para arquivos binários.
+- `file_read` limita leitura por `AGENTFLOW_TOOL_MAX_READ_BYTES` e retorna texto ou base64 conforme o conteúdo.
+- `web_search` usa DuckDuckGo Instant Answer como integração HTTP simples, sem credencial.
+- `image_generate` usa o endpoint Gemini configurado por `GEMINI_IMAGE_MODEL`, mas falha de forma rastreável se `GEMINI_API_KEY` não estiver configurada.
+- O Docker Compose monta `./tool-workspace` em `/app/tool-workspace` para persistir outputs locais das tools sem versionar arquivos gerados.
+
+Validações executadas:
+
+```txt
+orchestrator/python -m pytest
+frontend/npm run build
+backend/./mvnw.cmd test
+docker compose config --quiet
+git diff --check
+```
+
+Pendências:
+
+- Evoluir de execução baseada em payload estruturado para tool calling mais agente-driven, caso o próximo objetivo seja permitir que o LLM decida chamadas de tools durante a conversa.
+- Considerar um provider de busca web mais completo se a API pública simples não entregar resultados suficientes.
+- Validar `image_generate` com uma `GEMINI_API_KEY` real quando disponível.
+
+Próximo passo recomendado:
+
+```txt
+Criar um fluxo de teste no Playground usando payload JSON estruturado para file_write, file_read e web_search, e depois evoluir tool calling se necessário.
+```
+
+### Registro 016 — Fallbacks naturais para tools e preview de imagem
+
+Status:
+
+```txt
+Concluído
+```
+
+Resumo:
+
+Foram corrigidos os casos em que `file_write` e `image_generate` falhavam quando o agente enviava texto natural em vez de JSON estruturado. `file_write` agora cria automaticamente um arquivo `.txt` com timestamp quando não houver `path`. `image_generate` agora usa o próprio input como prompt quando não houver campo `prompt`, e também tenta extrair prompts em formato Markdown. O orchestrator passou a expor arquivos gerados em `/tool-files/{path}` e o Playground mostra um botão para abrir imagens geradas em um modal.
+
+Arquivos criados/alterados:
+
+```txt
+AGENTS.md
+README.md
+.env.example
+docker-compose.yml
+frontend/src/pages/PlaygroundPage.tsx
+frontend/src/styles.css
+orchestrator/app/main.py
+orchestrator/app/mcp/tools.py
+orchestrator/tests/test_main.py
+orchestrator/tests/test_tools.py
+.env (local ignorado pelo Git)
+```
+
+Decisões tomadas:
+
+- O workspace de tools do Docker agora pode ser definido por `AGENTFLOW_HOST_TOOL_WORKDIR`; no `.env` local ele foi apontado para a Área de Trabalho do usuário.
+- `file_write` sem `path` grava `agentflow-output-<timestamp>.txt` no workspace configurado.
+- `image_generate` sem `path` grava `agentflow-image-<timestamp>.png` no workspace configurado.
+- Resultados de tools que criam arquivos incluem `publicUrl`, permitindo preview via `http://localhost:8000/tool-files/...`.
+- O Playground mantém o JSON bruto dos tool calls, mas adiciona um botão `Abrir imagem` para chamadas de `image_generate` concluídas.
+
+Validações executadas:
+
+```txt
+orchestrator/python -m pytest
+frontend/npm run build
+docker compose config --quiet
+git diff --check
+docker compose up -d --build orchestrator frontend
+GET http://localhost:8000/health
+GET http://localhost:8080/api/health
+GET http://localhost:8000/tool-files/agentflow-smoke.txt
+```
+
+Pendências:
+
+- Validar uma geração real com Gemini via Playground e ajustar o modelo se a API retornar erro de provider/quota.
+
+Próximo passo recomendado:
+
+```txt
+Executar novamente o pipeline com `image_generate` permitido e confirmar que a imagem aparece na Área de Trabalho e no modal do Playground.
+```
+
+### Registro 017 — Correção do modelo Gemini image e validação real
+
+Status:
+
+```txt
+Concluído com bloqueio externo de quota
+```
+
+Resumo:
+
+Foi corrigido o modelo padrão da tool `image_generate`: o identificador antigo `gemini-2.0-flash-preview-image-generation` retornava 404 na API atual. A configuração passou a usar `gemini-2.5-flash-image`, com fallback para `gemini-3.1-flash-image-preview`, conforme documentação atual da Gemini API. Também foi melhorada a mensagem de erro para preservar detalhes HTTP dos modelos tentados.
+
+Arquivos criados/alterados:
+
+```txt
+AGENTS.md
+README.md
+.env.example
+docker-compose.yml
+orchestrator/app/mcp/tools.py
+orchestrator/tests/test_tools.py
+.env (local ignorado pelo Git)
+```
+
+Decisões tomadas:
+
+- O modelo local `GEMINI_IMAGE_MODEL` foi atualizado para `gemini-2.5-flash-image`.
+- `GEMINI_IMAGE_FALLBACK_MODELS` foi adicionado para permitir fallback controlado.
+- A validação real com a chave local confirmou que:
+  - `gemini-2.5-flash-image` existe, mas retornou HTTP 429 por quota;
+  - `gemini-2.5-flash-image-preview` retorna HTTP 404 e não deve ser usado;
+  - `gemini-3.1-flash-image-preview` existe, mas retornou HTTP 429 por quota.
+- A geração de imagem depende de quota ativa no projeto Google AI; com quota zero, a aplicação deve reportar falha clara em `toolCalls`.
+
+Validações executadas:
+
+```txt
+orchestrator/python -m pytest
+docker compose config --quiet
+chamada real Gemini image com gemini-2.5-flash-image, gemini-2.5-flash-image-preview e gemini-3.1-flash-image-preview
+```
+
+Pendências:
+
+- Habilitar billing/quota de geração de imagem no projeto Google AI ou trocar para outro provider com quota disponível.
+- Depois da quota ativa, repetir a validação real e confirmar o arquivo gerado na Área de Trabalho e o modal no Playground.
+
+Próximo passo recomendado:
+
+```txt
+Verificar no Google AI Studio a quota do projeto para modelos de imagem Gemini/Nano Banana e repetir a geração quando houver limite disponível.
+```
+
+### Registro 018 — Suporte a fallback Imagen e nova validação real
+
+Status:
+
+```txt
+Concluído com bloqueio externo de plano/quota
+```
+
+Resumo:
+
+A tool `image_generate` foi ampliada para suportar dois tipos de modelo Google AI: modelos Gemini image via `generateContent` e modelos Imagen via `predict`. O fallback local passou a tentar Imagen 4 Fast/Standard/Ultra antes dos modelos Gemini image, porque a tabela de cotas do usuário indicava RPD disponível para Imagen 4. Foram executadas chamadas reais com múltiplos modelos para confirmar o comportamento da chave atual.
+
+Arquivos criados/alterados:
+
+```txt
+AGENTS.md
+README.md
+.env.example
+docker-compose.yml
+orchestrator/app/mcp/tools.py
+orchestrator/tests/test_tools.py
+.env (local ignorado pelo Git)
+```
+
+Decisões tomadas:
+
+- `imagen-4.0-fast-generate-001` passou a ser o modelo primário para `image_generate`.
+- A lista de fallback inclui `imagen-4.0-generate-001`, `imagen-4.0-ultra-generate-001`, `gemini-2.5-flash-image`, `gemini-3.1-flash-image-preview` e `gemini-3-pro-image-preview`.
+- Modelos `imagen-*` usam payload `instances/parameters` no endpoint `:predict`.
+- Modelos `gemini-*image*` continuam usando `contents/parts` no endpoint `:generateContent`.
+- A validação real confirmou que Imagen 4 responde, mas exige plano pago nessa chave/projeto; os modelos Nano Banana/Gemini image retornam quota 0.
+
+Validações executadas:
+
+```txt
+orchestrator/python -m pytest
+docker compose config --quiet
+chamada real com imagen-4.0-fast-generate-001
+chamada real com imagen-4.0-generate-001
+chamada real com imagen-4.0-ultra-generate-001
+chamada real com imagen-4.0-fast-generate-preview-06-06
+chamada real com imagen-4.0-generate-preview-06-06
+chamada real com imagen-3.0-generate-002
+chamada real com imagen-3.0-fast-generate-001
+chamada real com gemini-2.5-flash-image
+chamada real com gemini-3.1-flash-image-preview
+chamada real com gemini-3-pro-image-preview
+```
+
+Resultado da validação real:
+
+```txt
+Imagen 4 Fast/Generate/Ultra: HTTP 400, exige upgrade/plano pago
+Imagen previews e Imagen 3 testados: HTTP 404 no endpoint atual
+Gemini/Nano Banana image testados: HTTP 429 por quota zero
+```
+
+Pendências:
+
+- Ativar plano/quota de imagem no Google AI ou configurar outro provider de imagem.
+- Após isso, repetir smoke test para confirmar gravação da imagem na Área de Trabalho e preview no Playground.
+
+Próximo passo recomendado:
+
+```txt
+Habilitar billing/quota para Imagen/Gemini image no Google AI Studio ou escolher outro provider gratuito com API realmente disponível para geração de imagem.
+```
+
+### Registro 019 — Correção de web search, file read e UX de falhas de tools
+
+Status:
+
+```txt
+Concluído
+```
+
+Resumo:
+
+Foram corrigidas as tools `web_search` e `file_read` e a visualização de traces no Playground. A busca web agora tenta múltiplas fontes/fallbacks e não depende de uma resposta JSON perfeita do primeiro provider. A leitura de arquivos deixou de exigir sempre um `path`: quando o agente não informa caminho exato, a tool procura na workspace configurada para tools por arquivo explicitamente citado ou parecido; se não encontrar um bom candidato, a chamada termina como falha. Também foi ajustada a semântica visual de falha: quando uma tool falha, o step correspondente aparece como falho no Playground, em vermelho, e saídas longas ficam contidas com modal de detalhes.
+
+Arquivos criados/alterados:
+
+```txt
+AGENTS.md
+README.md
+frontend/src/pages/PlaygroundPage.tsx
+frontend/src/styles.css
+orchestrator/app/graph/pipeline_graph.py
+orchestrator/app/mcp/tools.py
+orchestrator/tests/test_main.py
+orchestrator/tests/test_tools.py
+```
+
+Decisões tomadas:
+
+- `web_search` tenta DuckDuckGo Instant Answer, DuckDuckGo HTML e Wikipedia OpenSearch antes de falhar.
+- `file_read` fica limitado a `AGENTFLOW_TOOL_WORKDIR` e aceita `path`, `file`, `filename` ou `query`; sem caminho exato, usa busca aproximada no workspace.
+- Falhas de tools não derrubam a execução inteira, mas marcam o `ExecutionStep` como `FAILED` e preservam o erro em `toolCalls` e `errorMessage`.
+- O Playground deriva o status efetivo do step a partir do status persistido e dos tool calls, exibindo vermelho quando houver falha.
+- Cards de input/output/tool calls passaram a ter contenção de texto, quebra segura e modal para leitura completa de saídas extensas.
+
+Validações executadas:
+
+```txt
+orchestrator/python -m pytest
+frontend/npm run build
+docker compose config --quiet
+smoke test real de web_search com "Cristo Redentor Rio de Janeiro"
+docker compose up -d --build orchestrator frontend
+GET http://localhost:8000/health
+GET http://localhost:8080/api/health
+backend/./mvnw.cmd test
+git diff --check
+```
+
+Resultado da validação real de busca:
+
+```txt
+status: COMPLETED
+source: duckduckgo_html
+resultCount: 3
+firstTitle: Santuário Cristo Redentor
+```
+
+Pendências:
+
+- Criar testes automatizados de UI para o modal de detalhes e para coloração de steps com falha quando a suíte de frontend for adicionada.
+- Evoluir execução assíncrona/streaming para refletir falhas em tempo real, em vez de sincronizar após a resposta final.
+
+Próximo passo recomendado:
+
+```txt
+Validar manualmente no Playground um pipeline com `web_search` e outro com `file_read` sem path explícito usando arquivos reais na Área de Trabalho.
+```
+
+### Registro 020 — Cursor de detalhe dos cards de resultado
+
+Status:
+
+```txt
+Concluído
+```
+
+Resumo:
+
+Foi refinado o feedback visual dos cards de resultado no Playground. O botão de output que abre a modal de detalhes deixou de usar cursor de zoom e passou a usar a mãozinha padrão de ação clicável.
+
+Arquivos criados/alterados:
+
+```txt
+AGENTS.md
+frontend/src/styles.css
+```
+
+Decisões tomadas:
+
+- Manter o comportamento de clique e modal existente, alterando apenas o cursor para `pointer`.
+
+Validações executadas:
+
+```txt
+frontend/npm run build
+```
+
+Pendências:
+
+- Nenhuma.
+
+Próximo passo recomendado:
+
+```txt
+Validar visualmente no Playground passando o mouse sobre um card de output.
+```
+
 ## 9. Contratos importantes
 
 ### Backend para Orchestrator

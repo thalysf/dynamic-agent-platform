@@ -97,8 +97,10 @@ def build_agent_node(
             metadata={"stepIndex": index, "pipelineId": str(request.pipeline.id), "nodeId": node_id},
         )
         tool_calls = run_allowed_tools(agent.allowedTools, input_content, context)
+        failed_tool_errors = [str(call.get("error")) for call in tool_calls if call.get("status") == "FAILED"]
         output = generate_agent_output(agent, message.content, context, tool_calls)
         finished_at = datetime.now(timezone.utc)
+        step_status = "FAILED" if failed_tool_errors else "COMPLETED"
 
         return {
             "outputs": [{"nodeId": node_id, "output": output}],
@@ -108,13 +110,13 @@ def build_agent_node(
                     "nodeId": node_id,
                     "agentId": str(agent.id),
                     "agentName": agent.name,
-                    "status": "COMPLETED",
+                    "status": step_status,
                     "input": message.content,
                     "output": output,
                     "toolCalls": tool_calls,
                     "startedAt": started_at.isoformat(),
                     "finishedAt": finished_at.isoformat(),
-                    "errorMessage": None,
+                    "errorMessage": "; ".join(failed_tool_errors) if failed_tool_errors else None,
                 }
             ],
         }

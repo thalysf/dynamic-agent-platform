@@ -22,4 +22,11 @@ export const DEFAULT_AGENT: AgentPayload = {
   allowedTools: [],
 };
 
-export const AVAILABLE_TOOLS = ['word_count', 'echo_context'];
+export const AVAILABLE_TOOLS = [
+  { id: 'word_count', label: 'word_count' },
+  { id: 'echo_context', label: 'echo_context' },
+  { id: 'file_write', label: 'file_write' },
+  { id: 'file_read', label: 'file_read' },
+  { id: 'web_search', label: 'web_search' },
+  { id: 'image_generate', label: 'image_generate' },
+];

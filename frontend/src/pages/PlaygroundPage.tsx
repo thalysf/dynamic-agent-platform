@@ -84,6 +84,27 @@ type RuntimeNodeData = {
 type RuntimeNode = FlowNode<RuntimeNodeData, 'runtime'>;
 type RuntimeEdge = FlowEdge;
 type MiniMapStep = Pick<RuntimeNodeData, 'index' | 'label' | 'status'>;
+type ToolCall = {
+  toolName?: string;
+  status?: string;
+  result?: {
+    publicUrl?: string;
+    path?: string;
+    absolutePath?: string;
+    mimeType?: string;
+  };
+  error?: string;
+};
+type ImagePreview = {
+  url: string;
+  title: string;
+  path: string;
+};
+type StepDetailPreview = {
+  step: ExecutionStep;
+  status: Execution['status'];
+  toolCalls: ToolCall[];
+};
 
 const EMPTY_GRAPH_PLAN: GraphPlan = {
   nodes: [],
@@ -404,6 +425,70 @@ function prettyJson(value: string | null) {
   }
 }
 
+function parseToolCalls(value: string | null): ToolCall[] {
+  if (!value) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function imageToolCalls(value: string | null): ToolCall[] {
+  return parseToolCalls(value).filter(
+    (call) => call.toolName === 'image_generate' && call.status === 'COMPLETED' && call.result?.publicUrl,
+  );
+}
+
+function hasFailedToolCalls(value: string | null) {
+  return parseToolCalls(value).some((call) => call.status === 'FAILED');
+}
+
+function effectiveStepStatus(step: ExecutionStep): Execution['status'] {
+  if (step.status === 'FAILED' || hasFailedToolCalls(step.toolCalls)) {
+    return 'FAILED';
+  }
+  return step.status;
+}
+
+function graphStatusFromExecution(status: Execution['status']): LiveStatus {
+  if (status === 'FAILED' || status === 'CANCELLED') {
+    return 'failed';
+  }
+  if (status === 'COMPLETED') {
+    return 'completed';
+  }
+  if (status === 'RUNNING') {
+    return 'running';
+  }
+  return 'pending';
+}
+
+function graphStatusFromStepStatus(status: Execution['status']): LiveStatus {
+  if (status === 'FAILED' || status === 'CANCELLED') {
+    return 'failed';
+  }
+  if (status === 'COMPLETED') {
+    return 'completed';
+  }
+  if (status === 'RUNNING') {
+    return 'running';
+  }
+  return 'pending';
+}
+
+function stepsFromExecution(plan: GraphPlan, execution: Execution, executionSteps: ExecutionStep[]): LiveStep[] {
+  const byNodeId = new Map(executionSteps.filter((step) => step.nodeId).map((step) => [step.nodeId, effectiveStepStatus(step)]));
+  const fallbackStatus = graphStatusFromExecution(execution.status);
+  return plan.nodes.map((step) => ({
+    ...step,
+    status: byNodeId.has(step.nodeId) ? graphStatusFromStepStatus(byNodeId.get(step.nodeId) ?? 'PENDING') : fallbackStatus,
+  }));
+}
+
 function RuntimeFlow({
   graphPlan,
   liveSteps,
@@ -553,6 +638,8 @@ function PlaygroundPage({
   const [liveSteps, setLiveSteps] = useState<LiveStep[]>([]);
   const [liveMode, setLiveMode] = useState<'idle' | 'running' | 'completed' | 'failed'>('idle');
   const [activityTick, setActivityTick] = useState(0);
+  const [imagePreview, setImagePreview] = useState<ImagePreview | null>(null);
+  const [stepDetailPreview, setStepDetailPreview] = useState<StepDetailPreview | null>(null);
 
   const graphPlan = useMemo(() => buildGraphPlan(selectedPipeline, agents), [agents, selectedPipeline]);
   const completedCount = liveSteps.filter((step) => step.status === 'completed').length;
@@ -579,10 +666,11 @@ function PlaygroundPage({
   }, [liveMode]);
 
   async function loadSteps(execution: Execution) {
+    const executionSteps = await listExecutionSteps(execution.id);
     setSelectedExecution(execution);
-    setSteps(await listExecutionSteps(execution.id));
+    setSteps(executionSteps);
     setLiveMode('idle');
-    setLiveSteps(resetGraphSteps(graphPlan, execution.status === 'COMPLETED' ? 'completed' : 'pending'));
+    setLiveSteps(stepsFromExecution(graphPlan, execution, executionSteps));
   }
 
   async function executePipeline() {
@@ -609,12 +697,11 @@ function PlaygroundPage({
       const execution = await runPipeline(selectedProject.id, selectedPipeline.id, initialInput);
       await onExecutionsChanged();
       const executionSteps = await listExecutionSteps(execution.id);
+      const hasFailedStep = executionSteps.some((step) => effectiveStepStatus(step) === 'FAILED');
       setSelectedExecution(execution);
       setSteps(executionSteps);
-      setLiveMode(execution.status === 'COMPLETED' ? 'completed' : 'failed');
-      setLiveSteps((current) =>
-        current.map((step) => ({ ...step, status: (execution.status === 'COMPLETED' ? 'completed' : 'failed') as LiveStatus })),
-      );
+      setLiveMode(execution.status === 'COMPLETED' && !hasFailedStep ? 'completed' : 'failed');
+      setLiveSteps(stepsFromExecution(graphPlan, execution, executionSteps));
     } catch (reason) {
       setLiveMode('failed');
       setLiveSteps((current) => current.map((step) => (step.status === 'running' ? { ...step, status: 'failed' } : step)));
@@ -634,6 +721,7 @@ function PlaygroundPage({
   }
 
   return (
+    <>
     <div className="grid gap-5 xl:grid-cols-[420px_1fr]">
       <aside className="space-y-4">
         <section className="rounded border border-slate-200 bg-white p-5 shadow-sm">
@@ -751,42 +839,138 @@ function PlaygroundPage({
         </article>
 
         <div className="grid gap-4 lg:grid-cols-2">
-          {steps.map((step) => (
-            <article className="rounded border border-slate-200 bg-white p-5 shadow-sm" key={step.id}>
+          {steps.map((step) => {
+            const stepStatus = effectiveStepStatus(step);
+            const toolCalls = parseToolCalls(step.toolCalls);
+            const images = imageToolCalls(step.toolCalls);
+            return (
+            <article className={`trace-card ${stepStatus === 'FAILED' ? 'failed' : ''}`} key={step.id}>
               <div className="flex items-start justify-between gap-3">
-                <div>
+                <div className="min-w-0">
                   <p className="text-xs font-semibold uppercase text-slate-500">Step {step.stepIndex}</p>
-                  <h3 className="mt-1 font-semibold">{step.nodeId || step.agentId}</h3>
+                  <h3 className="mt-1 break-words font-semibold">{step.nodeId || step.agentId}</h3>
                 </div>
-                <span className={`rounded border px-2 py-1 text-xs font-medium ${statusClass(step.status)}`}>{statusLabel(step.status)}</span>
+                <span className={`shrink-0 rounded border px-2 py-1 text-xs font-medium ${statusClass(stepStatus)}`}>{statusLabel(stepStatus)}</span>
               </div>
               <div className="mt-4 grid gap-4">
                 <section>
                   <h4 className="text-xs font-semibold uppercase text-slate-500">Input recebido</h4>
-                  <p className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-slate-50 p-3 text-xs leading-5 text-slate-700">
+                  <p className="trace-preview input">
                     {step.input || 'Sem input registrado.'}
                   </p>
                 </section>
                 <section>
                   <h4 className="text-xs font-semibold uppercase text-slate-500">Output produzido</h4>
-                  <p className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap rounded bg-emerald-50 p-3 text-xs leading-5 text-slate-800">
+                  <button
+                    className={`trace-preview output ${stepStatus === 'FAILED' ? 'failed' : ''}`}
+                    onClick={() => setStepDetailPreview({ step, status: stepStatus, toolCalls })}
+                    type="button"
+                  >
                     {step.output || step.errorMessage || 'Sem output registrado.'}
-                  </p>
+                  </button>
                 </section>
                 {step.toolCalls ? (
                   <section>
                     <h4 className="text-xs font-semibold uppercase text-slate-500">Tool calls</h4>
-                    <pre className="mt-2 max-h-64 overflow-auto rounded bg-slate-950 p-3 text-xs leading-5 text-slate-100">
+                    {images.length ? (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {images.map((call, index) => (
+                          <button
+                            className="rounded border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs font-semibold text-cyan-900 hover:bg-cyan-100"
+                            key={`${step.id}-${call.result?.publicUrl ?? index}`}
+                            onClick={() =>
+                              setImagePreview({
+                                url: call.result?.publicUrl ?? '',
+                                title: `Imagem gerada - Step ${step.stepIndex}`,
+                                path: call.result?.path || call.result?.absolutePath || '',
+                              })
+                            }
+                            type="button"
+                          >
+                            Abrir imagem
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                    <pre className="trace-tool-calls">
                       {prettyJson(step.toolCalls)}
                     </pre>
                   </section>
                 ) : null}
               </div>
             </article>
-          ))}
+            );
+          })}
         </div>
       </section>
     </div>
+    {imagePreview ? (
+      <div className="image-preview-backdrop" role="presentation" onClick={() => setImagePreview(null)}>
+        <section
+          aria-modal="true"
+          className="image-preview-modal"
+          role="dialog"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="image-preview-header">
+            <div>
+              <p className="text-xs font-semibold uppercase text-cyan-200">Preview</p>
+              <h2 className="mt-1 text-lg font-semibold text-white">{imagePreview.title}</h2>
+              {imagePreview.path ? <p className="mt-1 break-all text-xs text-slate-300">{imagePreview.path}</p> : null}
+            </div>
+            <button className="image-preview-close" onClick={() => setImagePreview(null)} type="button" aria-label="Fechar preview">
+              x
+            </button>
+          </div>
+          <div className="image-preview-frame">
+            <img alt={imagePreview.title} src={imagePreview.url} />
+          </div>
+        </section>
+      </div>
+    ) : null}
+    {stepDetailPreview ? (
+      <div className="detail-preview-backdrop" role="presentation" onClick={() => setStepDetailPreview(null)}>
+        <section
+          aria-modal="true"
+          className="detail-preview-modal"
+          role="dialog"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="detail-preview-header">
+            <div className="min-w-0">
+              <p className="text-xs font-semibold uppercase text-cyan-200">Trace completo</p>
+              <h2 className="mt-1 break-words text-lg font-semibold text-white">Step {stepDetailPreview.step.stepIndex}</h2>
+              <p className="mt-1 break-all text-xs text-slate-300">
+                {stepDetailPreview.step.nodeId || stepDetailPreview.step.agentId || stepDetailPreview.step.id}
+              </p>
+            </div>
+            <div className="flex items-start gap-2">
+              <span className={`rounded border px-2 py-1 text-xs font-medium ${statusClass(stepDetailPreview.status)}`}>
+                {statusLabel(stepDetailPreview.status)}
+              </span>
+              <button className="image-preview-close" onClick={() => setStepDetailPreview(null)} type="button" aria-label="Fechar detalhes">
+                x
+              </button>
+            </div>
+          </div>
+          <div className="detail-preview-body">
+            <section>
+              <h3>Input recebido</h3>
+              <pre>{stepDetailPreview.step.input || 'Sem input registrado.'}</pre>
+            </section>
+            <section>
+              <h3>Output produzido</h3>
+              <pre>{stepDetailPreview.step.output || stepDetailPreview.step.errorMessage || 'Sem output registrado.'}</pre>
+            </section>
+            <section>
+              <h3>Tool calls</h3>
+              <pre>{prettyJson(stepDetailPreview.step.toolCalls)}</pre>
+            </section>
+          </div>
+        </section>
+      </div>
+    ) : null}
+    </>
   );
 }
 

@@ -172,12 +172,16 @@ Responsável por permitir que agentes usem ferramentas externas de forma control
 Na V1, a integração MCP deve ser simples e extensível. Exemplos de tools futuras:
 
 - leitura de arquivos locais controlados;
+- criação de arquivos locais controlados;
 - consulta a APIs públicas;
+- pesquisa web controlada;
 - consulta a banco de dados local de estudo;
 - busca em documentos textuais;
 - chamada a serviços internos mockados.
 
 O uso de MCP deve ser explicitamente permitido por agente. Um agente sem tools associadas não pode chamar tools externas.
+
+No refinamento pós-V1, as tools locais devem continuar restritas por `allowedTools` e por um workspace configurável. Escrita e leitura de arquivos não devem receber acesso irrestrito ao repositório inteiro por padrão. Geração de imagem é permitida apenas como tool opcional e condicionada a provider com free tier configurado por variável de ambiente.
 
 ### 6.5 A2A Adapter
 

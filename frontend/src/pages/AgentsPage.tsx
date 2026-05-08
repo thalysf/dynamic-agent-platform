@@ -213,10 +213,10 @@ function AgentsPage({
           <fieldset className="rounded border border-slate-200 p-3">
             <legend className="px-1 text-sm font-medium text-slate-700">Tools permitidas</legend>
             <div className="grid gap-2 sm:grid-cols-2">
-              {AVAILABLE_TOOLS.map((toolName) => (
-                <label className="flex items-center gap-2 text-sm" key={toolName}>
-                  <input checked={draft.allowedTools.includes(toolName)} type="checkbox" onChange={() => toggleTool(toolName)} />
-                  <span>{toolName}</span>
+              {AVAILABLE_TOOLS.map((tool) => (
+                <label className="flex items-center gap-2 text-sm" key={tool.id}>
+                  <input checked={draft.allowedTools.includes(tool.id)} type="checkbox" onChange={() => toggleTool(tool.id)} />
+                  <span>{tool.label}</span>
                 </label>
               ))}
             </div>

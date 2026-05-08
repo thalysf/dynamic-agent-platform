@@ -1,6 +1,10 @@
 # Local secrets
 .env
 
+# Agent tool outputs
+tool-workspace/*
+!tool-workspace/.gitkeep
+
 # Java / Maven
 target/
 *.class

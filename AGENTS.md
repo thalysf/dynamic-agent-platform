@@ -1464,6 +1464,86 @@ Próximo passo recomendado:
 Validar visualmente no Playground passando o mouse sobre um card de output.
 ```
 
+### Registro 021 — Status parcial no histórico e geração de imagem simplificada
+
+Status:
+
+```txt
+Concluído com bloqueio externo de quota/plano para imagem
+```
+
+Resumo:
+
+O Playground passou a exibir o status `Parcial` no histórico de execuções quando uma execução possui mistura de steps concluídos e steps com falha. A cor do status parcial é amarela/âmbar e o mesmo status também aparece no painel de resultado selecionado e no indicador principal da execução. A tool `image_generate` foi refeita em uma implementação mais simples: ela descobre modelos de imagem disponíveis na Google AI API quando habilitado, tenta primeiro modelos Gemini/Nano Banana via `generateContent`, depois tenta Imagen via `predict`, e retorna um erro compacto com os modelos tentados quando nenhum gera bytes de imagem.
+
+Arquivos criados/alterados:
+
+```txt
+AGENTS.md
+README.md
+.env.example
+docker-compose.yml
+frontend/src/pages/PlaygroundPage.tsx
+orchestrator/app/mcp/tools.py
+orchestrator/tests/test_tools.py
+.env (local ignorado pelo Git)
+```
+
+Decisões tomadas:
+
+- O status `Parcial` é derivado no frontend a partir dos `ExecutionStep`: se houver pelo menos um step concluído e pelo menos um step falho, a execução aparece como parcial.
+- O histórico carrega os steps das execuções em paralelo para conseguir calcular o status derivado sem exigir clique do usuário.
+- `GEMINI_IMAGE_MODEL` local passou para `gemini-3.1-flash-image-preview`, com fallback para `gemini-3-pro-image-preview`, `gemini-2.5-flash-image` e Imagen 4.
+- `GEMINI_IMAGE_DISCOVERY_ENABLED=true` foi adicionado para permitir descoberta dos modelos de imagem realmente disponíveis na chave/projeto.
+- A geração de imagem ficou básica e direta em REST, sem SDK novo: Gemini usa `:generateContent`, Imagen usa `:predict`.
+
+Validações executadas:
+
+```txt
+consulta real de modelos Google AI disponíveis com a chave local
+smoke test real de image_generate com prompt simples
+orchestrator/python -m pytest
+frontend/npm run build
+docker compose config --quiet
+backend/./mvnw.cmd test
+git diff --check
+docker compose up -d --build orchestrator frontend
+GET http://localhost:8000/health
+GET http://localhost:8080/api/health
+GET http://localhost:5173
+docker compose ps
+```
+
+Resultado da consulta real de modelos:
+
+```txt
+gemini-2.5-flash-image
+gemini-3-pro-image-preview
+gemini-3.1-flash-image-preview
+imagen-4.0-generate-001
+imagen-4.0-ultra-generate-001
+imagen-4.0-fast-generate-001
+```
+
+Resultado da validação real de imagem:
+
+```txt
+Gemini/Nano Banana: HTTP 429 por quota free tier igual a zero para imagem.
+Imagen 4: HTTP 400 indicando necessidade de plano pago/upgrade.
+Nenhum modelo disponível na chave atual gerou bytes de imagem.
+```
+
+Pendências:
+
+- Revisar a geração de imagem quando houver quota ativa para Gemini image/Nano Banana ou plano pago para Imagen.
+- Adicionar testes de UI para o status parcial no histórico quando a suíte de frontend for criada.
+
+Próximo passo recomendado:
+
+```txt
+Manter `image_generate` como tool básica por enquanto e validar novamente quando a quota de imagem estiver ativa na Google AI.
+```
+
 ## 9. Contratos importantes
 
 ### Backend para Orchestrator

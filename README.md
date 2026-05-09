@@ -60,7 +60,7 @@ Structured tool input can be sent as JSON in the pipeline input or previous agen
 }
 ```
 
-`file_write` also accepts `contentBase64` for binary files. `web_search` uses resilient fallbacks across DuckDuckGo instant answer, DuckDuckGo HTML results and Wikipedia OpenSearch. `image_generate` uses Google AI image models only when `GEMINI_API_KEY` is configured and the Google AI project has image-generation quota; otherwise the tool call is recorded as failed instead of breaking the whole app. It supports Imagen models through `:predict` and Gemini image models through `:generateContent`, trying `GEMINI_IMAGE_MODEL` first and then `GEMINI_IMAGE_FALLBACK_MODELS`.
+`file_write` also accepts `contentBase64` for binary files. `web_search` uses resilient fallbacks across DuckDuckGo instant answer, DuckDuckGo HTML results and Wikipedia OpenSearch. `image_generate` uses Google AI image models only when `GEMINI_API_KEY` is configured and the Google AI project has image-generation quota; otherwise the tool call is recorded as failed instead of breaking the whole app. It discovers available Google image models when `GEMINI_IMAGE_DISCOVERY_ENABLED=true`, tries Gemini/Nano Banana models first through `:generateContent`, and then tries Imagen models through `:predict`.
 
 When no structured JSON is provided, `file_write` saves the received text to a timestamped `.txt` file in the tool workspace, and `image_generate` uses the received text as the prompt. Generated files include a local `publicUrl` so the Playground can preview images from tool calls.
 

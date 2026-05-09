@@ -221,6 +221,7 @@ def test_image_generate_uses_gemini_response_and_writes_image(tmp_path: Path, mo
     monkeypatch.setenv("GEMINI_API_KEY", "test-key")
     monkeypatch.setenv("GEMINI_IMAGE_MODEL", "gemini-2.5-flash-image")
     monkeypatch.setenv("GEMINI_IMAGE_FALLBACK_MODELS", "")
+    monkeypatch.setenv("GEMINI_IMAGE_DISCOVERY_ENABLED", "false")
     monkeypatch.setattr(tools.urllib.request, "urlopen", fake_urlopen)
     content = json.dumps({"image_generate": {"prompt": "A clean UI mockup", "path": "images/mock.png"}})
 
@@ -261,6 +262,7 @@ def test_image_generate_uses_plain_text_as_prompt(tmp_path: Path, monkeypatch: p
     monkeypatch.setenv("GEMINI_API_KEY", "test-key")
     monkeypatch.setenv("GEMINI_IMAGE_MODEL", "gemini-2.5-flash-image")
     monkeypatch.setenv("GEMINI_IMAGE_FALLBACK_MODELS", "")
+    monkeypatch.setenv("GEMINI_IMAGE_DISCOVERY_ENABLED", "false")
     monkeypatch.setattr(tools.urllib.request, "urlopen", fake_urlopen)
 
     calls = tools.run_allowed_tools({"image_generate"}, "Cristo Redentor no Rio de Janeiro", {})
@@ -299,12 +301,50 @@ def test_image_generate_extracts_markdown_prompt(tmp_path: Path, monkeypatch: py
     monkeypatch.setenv("GEMINI_API_KEY", "test-key")
     monkeypatch.setenv("GEMINI_IMAGE_MODEL", "gemini-2.5-flash-image")
     monkeypatch.setenv("GEMINI_IMAGE_FALLBACK_MODELS", "")
+    monkeypatch.setenv("GEMINI_IMAGE_DISCOVERY_ENABLED", "false")
     monkeypatch.setattr(tools.urllib.request, "urlopen", fake_urlopen)
     content = '**Prompt para Geracao de Imagem:** "Uma vista panoramica do Rio de Janeiro"'
 
     calls = tools.run_allowed_tools({"image_generate"}, content, {})
 
     assert calls[0]["status"] == "COMPLETED"
+
+
+def test_image_generate_discovers_google_image_models(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_urlopen(request, timeout):
+        assert request.full_url.endswith("/v1beta/models")
+        return FakeResponse(
+            {
+                "models": [
+                    {
+                        "name": "models/gemini-3.1-flash-image-preview",
+                        "displayName": "Nano Banana 2",
+                        "supportedGenerationMethods": ["generateContent"],
+                    },
+                    {
+                        "name": "models/gemini-2.5-flash",
+                        "displayName": "Gemini 2.5 Flash",
+                        "supportedGenerationMethods": ["generateContent"],
+                    },
+                    {
+                        "name": "models/imagen-4.0-fast-generate-001",
+                        "displayName": "Imagen 4 Fast",
+                        "supportedGenerationMethods": ["predict"],
+                    },
+                ]
+            }
+        )
+
+    monkeypatch.delenv("GEMINI_IMAGE_MODEL", raising=False)
+    monkeypatch.delenv("GEMINI_IMAGE_FALLBACK_MODELS", raising=False)
+    monkeypatch.setenv("GEMINI_IMAGE_DISCOVERY_ENABLED", "true")
+    monkeypatch.setattr(tools.urllib.request, "urlopen", fake_urlopen)
+
+    models = tools.configured_google_image_models("test-key")
+
+    assert models[0] == "gemini-3.1-flash-image-preview"
+    assert "gemini-2.5-flash" not in models
+    assert "imagen-4.0-fast-generate-001" in models
 
 
 def test_image_generate_requires_configured_gemini_key(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -348,6 +388,7 @@ def test_image_generate_tries_fallback_models(tmp_path: Path, monkeypatch: pytes
     monkeypatch.setenv("GEMINI_API_KEY", "test-key")
     monkeypatch.setenv("GEMINI_IMAGE_MODEL", "missing-model")
     monkeypatch.setenv("GEMINI_IMAGE_FALLBACK_MODELS", "gemini-2.5-flash-image")
+    monkeypatch.setenv("GEMINI_IMAGE_DISCOVERY_ENABLED", "false")
     monkeypatch.setattr(tools.urllib.request, "urlopen", fake_urlopen)
 
     calls = tools.run_allowed_tools({"image_generate"}, "A clean UI mockup", {})
@@ -381,6 +422,7 @@ def test_image_generate_supports_imagen_predict_response(tmp_path: Path, monkeyp
     monkeypatch.setenv("GEMINI_API_KEY", "test-key")
     monkeypatch.setenv("GEMINI_IMAGE_MODEL", "imagen-4.0-fast-generate-001")
     monkeypatch.setenv("GEMINI_IMAGE_FALLBACK_MODELS", "")
+    monkeypatch.setenv("GEMINI_IMAGE_DISCOVERY_ENABLED", "false")
     monkeypatch.setattr(tools.urllib.request, "urlopen", fake_urlopen)
 
     calls = tools.run_allowed_tools({"image_generate"}, "A clean UI mockup", {})

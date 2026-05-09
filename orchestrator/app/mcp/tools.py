@@ -17,6 +17,18 @@ import urllib.error
 
 ToolHandler = Callable[[str, dict[str, Any]], dict[str, Any]]
 
+GEMINI_IMAGE_MODELS = (
+    "gemini-3.1-flash-image-preview",
+    "gemini-3-pro-image-preview",
+    "gemini-2.5-flash-image",
+    "gemini-2.0-flash-preview-image-generation",
+)
+IMAGEN_IMAGE_MODELS = (
+    "imagen-4.0-fast-generate-001",
+    "imagen-4.0-generate-001",
+    "imagen-4.0-ultra-generate-001",
+)
+
 
 class ToolExecutionError(ValueError):
     pass
@@ -242,43 +254,37 @@ def image_generate_tool(content: str, context: dict[str, Any]) -> dict[str, Any]
     if not api_key or api_key == "replace-me":
         raise ToolExecutionError("GEMINI_API_KEY is not configured.")
 
-    models = configured_gemini_image_models()
+    models = configured_google_image_models(api_key)
     output_path = str(payload.get("path") or default_image_path())
     target = resolve_tool_path(output_path)
     target.parent.mkdir(parents=True, exist_ok=True)
 
-    body = {
-        "contents": [{"parts": [{"text": prompt}]}],
-    }
-    result: dict[str, Any] | None = None
-    used_model = ""
-    errors: list[str] = []
-
+    attempts: list[dict[str, str]] = []
     for model in models:
-        try:
-            result = call_gemini_image_api(model, api_key, body)
-            used_model = model
-            break
-        except Exception as exc:
-            errors.append(str(exc))
+        response = try_google_image_model(model, api_key, prompt)
+        attempts.append({"model": model, "status": response["status"], "detail": response["detail"]})
+        if response["status"] != "COMPLETED":
+            continue
 
-    if result is None:
-        raise ToolExecutionError("Gemini image request failed for all configured models. " + " | ".join(errors))
+        image_data, mime_type, text_parts = extract_google_image(response["payload"])
+        if image_data is None:
+            attempts[-1]["status"] = "FAILED"
+            attempts[-1]["detail"] = "response did not include image bytes"
+            continue
 
-    image_data, mime_type, text_parts = extract_gemini_image(result)
-    if image_data is None:
-        raise ToolExecutionError("Gemini response did not include inline image data.")
+        target.write_bytes(image_data)
+        return {
+            "path": output_path,
+            "absolutePath": str(target),
+            "publicUrl": public_tool_url(output_path),
+            "model": model,
+            "mimeType": mime_type,
+            "bytesWritten": len(image_data),
+            "text": "\n".join(text_parts),
+            "attempts": attempts,
+        }
 
-    target.write_bytes(image_data)
-    return {
-        "path": output_path,
-        "absolutePath": str(target),
-        "publicUrl": public_tool_url(output_path),
-        "model": used_model,
-        "mimeType": mime_type,
-        "bytesWritten": len(image_data),
-        "text": "\n".join(text_parts),
-    }
+    raise ToolExecutionError("image_generate failed for all image models. " + summarize_image_attempts(attempts))
 
 
 TOOL_REGISTRY: dict[str, ToolSpec] = {
@@ -373,23 +379,72 @@ def positive_int(value: Any, default: int) -> int:
     return parsed if parsed > 0 else default
 
 
-def configured_gemini_image_models() -> list[str]:
-    primary = os.getenv("GEMINI_IMAGE_MODEL", "imagen-4.0-fast-generate-001").strip()
-    fallback_values = os.getenv(
-        "GEMINI_IMAGE_FALLBACK_MODELS",
-        "imagen-4.0-generate-001,imagen-4.0-ultra-generate-001,gemini-2.5-flash-image,gemini-3.1-flash-image-preview,gemini-3-pro-image-preview",
-    )
+def configured_google_image_models(api_key: str) -> list[str]:
+    primary = os.getenv("GEMINI_IMAGE_MODEL", "").strip()
+    fallback_values = os.getenv("GEMINI_IMAGE_FALLBACK_MODELS", "")
     models: list[str] = []
-    for model in [primary, *fallback_values.split(",")]:
+    for model in [
+        primary,
+        *fallback_values.split(","),
+        *discover_google_image_models(api_key),
+        *GEMINI_IMAGE_MODELS,
+        *IMAGEN_IMAGE_MODELS,
+    ]:
         normalized = model.strip()
         if normalized and normalized not in models:
             models.append(normalized)
     return models
 
 
-def call_gemini_image_api(model: str, api_key: str, body: dict[str, Any]) -> dict[str, Any]:
+def discover_google_image_models(api_key: str) -> list[str]:
+    if os.getenv("GEMINI_IMAGE_DISCOVERY_ENABLED", "true").strip().lower() in {"0", "false", "no"}:
+        return []
+
+    endpoint = "https://generativelanguage.googleapis.com/v1beta/models"
+    request = urllib.request.Request(
+        endpoint,
+        headers={
+            "Accept": "application/json",
+            "User-Agent": "AgentFlowStudio/0.1",
+            "x-goog-api-key": api_key,
+        },
+    )
+    timeout = float(os.getenv("GEMINI_IMAGE_TIMEOUT_SECONDS", "30"))
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except Exception:
+        return []
+
+    discovered: list[str] = []
+    for model_info in payload.get("models", []):
+        if not isinstance(model_info, dict):
+            continue
+        name = str(model_info.get("name") or "").removeprefix("models/")
+        display_name = str(model_info.get("displayName") or "")
+        methods = model_info.get("supportedGenerationMethods", [])
+        supports_image_generation = (
+            ("generateContent" in methods and "image" in f"{name} {display_name}".lower())
+            or ("predict" in methods and name.startswith("imagen-"))
+        )
+        if name and supports_image_generation:
+            discovered.append(name)
+    return discovered
+
+
+def try_google_image_model(model: str, api_key: str, prompt: str) -> dict[str, Any]:
+    try:
+        payload = call_google_image_api(model, api_key, prompt)
+        return {"status": "COMPLETED", "detail": "ok", "payload": payload}
+    except urllib.error.HTTPError as exc:
+        detail = summarize_http_error(exc)
+        return {"status": "FAILED", "detail": f"HTTP {exc.code}: {detail}", "payload": {}}
+    except Exception as exc:
+        return {"status": "FAILED", "detail": str(exc)[:500], "payload": {}}
+
+
+def call_google_image_api(model: str, api_key: str, prompt: str) -> dict[str, Any]:
     if is_imagen_model(model):
-        prompt = body["contents"][0]["parts"][0]["text"]
         endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{urllib.parse.quote(model)}:predict"
         request_body = {
             "instances": [{"prompt": prompt}],
@@ -397,7 +452,9 @@ def call_gemini_image_api(model: str, api_key: str, body: dict[str, Any]) -> dic
         }
     else:
         endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{urllib.parse.quote(model)}:generateContent"
-        request_body = body
+        request_body = {
+            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+        }
 
     request = urllib.request.Request(
         endpoint,
@@ -410,12 +467,27 @@ def call_gemini_image_api(model: str, api_key: str, body: dict[str, Any]) -> dic
         method="POST",
     )
     timeout = float(os.getenv("GEMINI_IMAGE_TIMEOUT_SECONDS", "30"))
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def summarize_http_error(exc: urllib.error.HTTPError) -> str:
+    detail = exc.read().decode("utf-8", errors="replace")
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            return json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")[:1000]
-        raise ToolExecutionError(f"Gemini model {model} failed with HTTP {exc.code}: {detail}") from exc
+        parsed = json.loads(detail)
+        error = parsed.get("error") if isinstance(parsed, dict) else None
+        if isinstance(error, dict):
+            message = str(error.get("message") or "").replace("\n", " ").strip()
+            status = str(error.get("status") or "").strip()
+            return f"{status} {message}".strip()[:500]
+    except json.JSONDecodeError:
+        pass
+    return detail.replace("\n", " ").strip()[:500]
+
+
+def summarize_image_attempts(attempts: list[dict[str, str]]) -> str:
+    compact = [f"{attempt['model']}: {attempt['detail']}" for attempt in attempts]
+    return " | ".join(compact)[:1800]
 
 
 def is_imagen_model(model: str) -> bool:
@@ -582,7 +654,7 @@ def image_prompt(payload: dict[str, Any], content: str) -> str:
     return content.strip()
 
 
-def extract_gemini_image(result: dict[str, Any]) -> tuple[bytes | None, str, list[str]]:
+def extract_google_image(result: dict[str, Any]) -> tuple[bytes | None, str, list[str]]:
     imagen_image = extract_imagen_image(result)
     if imagen_image[0] is not None:
         return imagen_image

@@ -44,6 +44,14 @@ type PlaygroundPageProps = {
 };
 
 type LiveStatus = 'pending' | 'running' | 'completed' | 'failed';
+type RunMode = 'idle' | LiveStatus | 'partial';
+type DisplayStatus = Execution['status'] | 'PARTIAL';
+
+type StepSummary = {
+  hasCompleted: boolean;
+  hasFailed: boolean;
+  total: number;
+};
 
 type LiveStep = {
   id: string;
@@ -386,32 +394,42 @@ function edgeColor(state: string) {
   return 'rgba(148, 163, 184, 0.36)';
 }
 
-function statusLabel(status: LiveStatus | Execution['status']) {
+function statusLabel(status: LiveStatus | RunMode | DisplayStatus) {
   const labels = {
+    idle: 'Na fila',
     pending: 'Na fila',
     running: 'Executando',
     completed: 'Concluido',
     failed: 'Falhou',
+    partial: 'Parcial',
     PENDING: 'Na fila',
     RUNNING: 'Executando',
     COMPLETED: 'Concluido',
     FAILED: 'Falhou',
     CANCELLED: 'Cancelado',
+    PARTIAL: 'Parcial',
   };
   return labels[status];
 }
 
-function statusClass(status: LiveStatus | Execution['status']) {
+function statusClass(status: LiveStatus | RunMode | DisplayStatus) {
   if (status === 'running' || status === 'RUNNING') {
     return 'border-sky-300 bg-sky-50 text-sky-800';
   }
   if (status === 'completed' || status === 'COMPLETED') {
     return 'border-emerald-300 bg-emerald-50 text-emerald-800';
   }
+  if (status === 'partial' || status === 'PARTIAL') {
+    return 'border-amber-300 bg-amber-50 text-amber-900';
+  }
   if (status === 'failed' || status === 'FAILED') {
     return 'border-red-300 bg-red-50 text-red-800';
   }
   return 'border-slate-300 bg-slate-50 text-slate-700';
+}
+
+function statusBadgeText(status: DisplayStatus) {
+  return status === 'PARTIAL' ? 'PARCIAL' : status;
 }
 
 function prettyJson(value: string | null) {
@@ -452,6 +470,32 @@ function effectiveStepStatus(step: ExecutionStep): Execution['status'] {
     return 'FAILED';
   }
   return step.status;
+}
+
+function summarizeExecutionSteps(executionSteps: ExecutionStep[]): StepSummary {
+  const statuses = executionSteps.map(effectiveStepStatus);
+  return {
+    hasCompleted: statuses.some((status) => status === 'COMPLETED'),
+    hasFailed: statuses.some((status) => status === 'FAILED'),
+    total: statuses.length,
+  };
+}
+
+function displayStatusForExecution(execution: Execution, summary?: StepSummary): DisplayStatus {
+  if (summary?.hasFailed && summary.hasCompleted) {
+    return 'PARTIAL';
+  }
+  if (summary?.hasFailed && summary.total > 0) {
+    return 'FAILED';
+  }
+  return execution.status;
+}
+
+function runModeFromDisplayStatus(status: DisplayStatus): RunMode {
+  if (status === 'PARTIAL') {
+    return 'partial';
+  }
+  return graphStatusFromExecution(status);
 }
 
 function graphStatusFromExecution(status: Execution['status']): LiveStatus {
@@ -636,14 +680,19 @@ function PlaygroundPage({
   const [steps, setSteps] = useState<ExecutionStep[]>([]);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const [liveSteps, setLiveSteps] = useState<LiveStep[]>([]);
-  const [liveMode, setLiveMode] = useState<'idle' | 'running' | 'completed' | 'failed'>('idle');
+  const [liveMode, setLiveMode] = useState<RunMode>('idle');
   const [activityTick, setActivityTick] = useState(0);
   const [imagePreview, setImagePreview] = useState<ImagePreview | null>(null);
   const [stepDetailPreview, setStepDetailPreview] = useState<StepDetailPreview | null>(null);
+  const [historyStepSummaries, setHistoryStepSummaries] = useState<Map<string, StepSummary>>(new Map());
 
   const graphPlan = useMemo(() => buildGraphPlan(selectedPipeline, agents), [agents, selectedPipeline]);
-  const completedCount = liveSteps.filter((step) => step.status === 'completed').length;
-  const progressPercent = liveSteps.length ? Math.round((completedCount / liveSteps.length) * 100) : 0;
+  const finishedCount = liveSteps.filter((step) => step.status === 'completed' || step.status === 'failed').length;
+  const progressPercent = liveSteps.length ? Math.round((finishedCount / liveSteps.length) * 100) : 0;
+  const executionHistoryKey = useMemo(() => executions.map((execution) => execution.id).join('|'), [executions]);
+  const selectedDisplayStatus = selectedExecution
+    ? displayStatusForExecution(selectedExecution, summarizeExecutionSteps(steps))
+    : null;
 
   useEffect(() => {
     setSelectedExecution(null);
@@ -665,10 +714,42 @@ function PlaygroundPage({
     return () => window.clearInterval(timer);
   }, [liveMode]);
 
+  useEffect(() => {
+    let cancelled = false;
+    if (!executions.length) {
+      setHistoryStepSummaries(new Map());
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    void Promise.all(
+      executions.map(async (execution) => {
+        const executionSteps = await listExecutionSteps(execution.id);
+        return [execution.id, summarizeExecutionSteps(executionSteps)] as const;
+      }),
+    )
+      .then((entries) => {
+        if (!cancelled) {
+          setHistoryStepSummaries(new Map(entries));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setHistoryStepSummaries(new Map());
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [executionHistoryKey]);
+
   async function loadSteps(execution: Execution) {
     const executionSteps = await listExecutionSteps(execution.id);
     setSelectedExecution(execution);
     setSteps(executionSteps);
+    setHistoryStepSummaries((current) => new Map(current).set(execution.id, summarizeExecutionSteps(executionSteps)));
     setLiveMode('idle');
     setLiveSteps(stepsFromExecution(graphPlan, execution, executionSteps));
   }
@@ -697,10 +778,12 @@ function PlaygroundPage({
       const execution = await runPipeline(selectedProject.id, selectedPipeline.id, initialInput);
       await onExecutionsChanged();
       const executionSteps = await listExecutionSteps(execution.id);
-      const hasFailedStep = executionSteps.some((step) => effectiveStepStatus(step) === 'FAILED');
+      const stepSummary = summarizeExecutionSteps(executionSteps);
+      const displayStatus = displayStatusForExecution(execution, stepSummary);
       setSelectedExecution(execution);
       setSteps(executionSteps);
-      setLiveMode(execution.status === 'COMPLETED' && !hasFailedStep ? 'completed' : 'failed');
+      setHistoryStepSummaries((current) => new Map(current).set(execution.id, stepSummary));
+      setLiveMode(runModeFromDisplayStatus(displayStatus));
       setLiveSteps(stepsFromExecution(graphPlan, execution, executionSteps));
     } catch (reason) {
       setLiveMode('failed');
@@ -769,7 +852,9 @@ function PlaygroundPage({
         <section className="rounded border border-slate-200 bg-white p-5 shadow-sm">
           <h2 className="text-lg font-semibold">Historico</h2>
           <div className="mt-4 space-y-2">
-            {executions.map((execution) => (
+            {executions.map((execution) => {
+              const displayStatus = displayStatusForExecution(execution, historyStepSummaries.get(execution.id));
+              return (
               <button
                 className={`w-full rounded border px-3 py-2 text-left text-sm ${
                   selectedExecution?.id === execution.id ? 'border-sky-500 bg-sky-50' : 'border-slate-200 bg-white'
@@ -779,12 +864,13 @@ function PlaygroundPage({
                 type="button"
               >
                 <span className="flex items-center justify-between gap-3">
-                  <span className="font-semibold">{statusLabel(execution.status)}</span>
-                  <span className={`rounded border px-2 py-0.5 text-xs ${statusClass(execution.status)}`}>{execution.status}</span>
+                  <span className="font-semibold">{statusLabel(displayStatus)}</span>
+                  <span className={`rounded border px-2 py-0.5 text-xs ${statusClass(displayStatus)}`}>{statusBadgeText(displayStatus)}</span>
                 </span>
                 <span className="mt-1 block text-xs text-slate-500">{execution.startedAt || execution.id}</span>
               </button>
-            ))}
+              );
+            })}
           </div>
         </section>
       </aside>
@@ -824,9 +910,9 @@ function PlaygroundPage({
           {selectedExecution ? (
             <div className="mt-4 rounded border border-slate-200 p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <p className="text-sm font-semibold">{statusLabel(selectedExecution.status)}</p>
-                <span className={`rounded border px-2 py-1 text-xs font-medium ${statusClass(selectedExecution.status)}`}>
-                  {selectedExecution.status}
+                <p className="text-sm font-semibold">{statusLabel(selectedDisplayStatus ?? selectedExecution.status)}</p>
+                <span className={`rounded border px-2 py-1 text-xs font-medium ${statusClass(selectedDisplayStatus ?? selectedExecution.status)}`}>
+                  {statusBadgeText(selectedDisplayStatus ?? selectedExecution.status)}
                 </span>
               </div>
               <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">

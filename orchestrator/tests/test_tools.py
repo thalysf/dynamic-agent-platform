@@ -236,6 +236,7 @@ def test_image_generate_uses_huggingface_and_writes_image(tmp_path: Path, monkey
     monkeypatch.setenv("HF_TOKEN", "test-token")
     monkeypatch.delenv("HF_IMAGE_PROVIDER", raising=False)
     monkeypatch.delenv("HF_IMAGE_MODEL", raising=False)
+    monkeypatch.delenv("HF_IMAGE_FALLBACKS", raising=False)
     monkeypatch.setattr(tools, "generate_huggingface_image", fake_generate)
     content = json.dumps({"image_generate": {"prompt": "A clean UI mockup", "path": "images/mock.png"}})
 
@@ -247,6 +248,39 @@ def test_image_generate_uses_huggingface_and_writes_image(tmp_path: Path, monkey
     assert calls[0]["result"]["mimeType"] == "image/png"
     assert calls[0]["result"]["publicUrl"] == "http://localhost:8000/tool-files/images/mock.png"
     assert (tmp_path / "images" / "mock.png").read_bytes() == b"fake-png"
+
+
+def test_image_generate_falls_back_when_primary_provider_has_no_quota(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    attempted: list[tuple[str, str]] = []
+
+    def fake_generate(provider: str, api_key: str, model: str, prompt: str):
+        attempted.append((provider, model))
+        if provider == "wavespeed":
+            raise RuntimeError("402 Payment Required")
+        assert provider == "hf-inference"
+        assert model == "black-forest-labs/FLUX.1-schnell"
+        return FakeImage(b"fallback-png")
+
+    monkeypatch.setenv("AGENTFLOW_TOOL_WORKDIR", str(tmp_path))
+    monkeypatch.setenv("HF_TOKEN", "test-token")
+    monkeypatch.setenv("HF_IMAGE_PROVIDER", "wavespeed")
+    monkeypatch.setenv("HF_IMAGE_MODEL", "black-forest-labs/FLUX.1-dev")
+    monkeypatch.setenv("HF_IMAGE_FALLBACKS", "hf-inference|black-forest-labs/FLUX.1-schnell")
+    monkeypatch.setattr(tools, "generate_huggingface_image", fake_generate)
+
+    calls = tools.run_allowed_tools({"image_generate"}, json.dumps({"image_generate": {"prompt": "A clean UI mockup"}}), {})
+
+    assert calls[0]["status"] == "COMPLETED"
+    assert attempted == [
+        ("wavespeed", "black-forest-labs/FLUX.1-dev"),
+        ("hf-inference", "black-forest-labs/FLUX.1-schnell"),
+    ]
+    assert calls[0]["result"]["provider"] == "hf-inference"
+    assert calls[0]["result"]["model"] == "black-forest-labs/FLUX.1-schnell"
+    assert [attempt["status"] for attempt in calls[0]["result"]["attempts"]] == ["FAILED", "COMPLETED"]
+    assert (tmp_path / calls[0]["result"]["path"]).read_bytes() == b"fallback-png"
 
 
 def test_image_generate_allows_huggingface_provider_and_model_overrides(

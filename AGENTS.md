@@ -1761,6 +1761,62 @@ Próximo passo recomendado:
 Executar uma pipeline no Playground e conferir o resumo geral formatado.
 ```
 
+### Registro 027 — Fallbacks para geração de imagem no Hugging Face
+
+Status:
+
+```txt
+Concluído
+```
+
+Resumo:
+
+Foi adicionado fallback real para a tool `image_generate`. O provider/modelo atual `wavespeed` + `black-forest-labs/FLUX.1-dev` foi preservado como primário, mas quando ele falhar por quota, pagamento ou erro do provider, a tool passa a tentar modelos alternativos do Hugging Face Inference Providers. Antes da implementação, foram testados providers/modelos com o token local e confirmados como funcionais `together` + `black-forest-labs/FLUX.1-schnell`, `hf-inference` + `black-forest-labs/FLUX.1-schnell` e `hf-inference` + `stabilityai/stable-diffusion-3-medium-diffusers`.
+
+Arquivos criados/alterados:
+
+```txt
+AGENTS.md
+README.md
+.env.example
+docker-compose.yml
+spec.md
+orchestrator/app/mcp/tools.py
+orchestrator/tests/test_tools.py
+```
+
+Decisões tomadas:
+
+- `HF_IMAGE_PROVIDER` e `HF_IMAGE_MODEL` continuam definindo o candidato primário.
+- `HF_IMAGE_FALLBACKS` aceita entradas no formato `provider|model`, separadas por vírgula.
+- Mesmo sem variável explícita, a tool mantém fallbacks internos testados para `together` e `hf-inference`.
+- O resultado da tool agora registra `attempts` com provider, modelo e status de cada tentativa, sem expor token.
+- Falhas de todos os candidatos são agregadas em uma mensagem única para rastreabilidade.
+
+Validações executadas:
+
+```txt
+pesquisa nos docs atuais do Hugging Face Inference Providers
+smoke direto com Hugging Face InferenceClient para candidatos de text-to-image
+orchestrator/python -m pytest
+docker compose config --quiet
+git diff --check
+docker compose up --build -d orchestrator
+GET http://localhost:8000/health
+smoke real da tool image_generate no container: wavespeed falhou e together gerou smoke/hf-fallback-cube.png
+```
+
+Pendências:
+
+- Monitorar consumo de créditos do Hugging Face, já que os providers roteados usam créditos mensais ou billing do Hub.
+- Se todos os fallbacks ficarem sem crédito, configurar uma chave/provider externo dedicado ou trocar a lista em `HF_IMAGE_FALLBACKS`.
+
+Próximo passo recomendado:
+
+```txt
+Executar uma pipeline no Playground com `image_generate` permitido e confirmar que o preview usa o fallback quando o primário falhar.
+```
+
 ## 9. Contratos importantes
 
 ### Backend para Orchestrator

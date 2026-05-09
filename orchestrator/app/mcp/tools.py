@@ -19,6 +19,11 @@ ToolHandler = Callable[[str, dict[str, Any]], dict[str, Any]]
 
 DEFAULT_HF_IMAGE_PROVIDER = "wavespeed"
 DEFAULT_HF_IMAGE_MODEL = "black-forest-labs/FLUX.1-dev"
+DEFAULT_HF_IMAGE_FALLBACKS = (
+    ("together", "black-forest-labs/FLUX.1-schnell"),
+    ("hf-inference", "black-forest-labs/FLUX.1-schnell"),
+    ("hf-inference", "stabilityai/stable-diffusion-3-medium-diffusers"),
+)
 
 
 class ToolExecutionError(ValueError):
@@ -29,6 +34,12 @@ class ToolExecutionError(ValueError):
 class ToolSpec:
     name: str
     handler: ToolHandler
+
+
+@dataclass(frozen=True)
+class ImageModelCandidate:
+    provider: str
+    model: str
 
 
 def word_count_tool(content: str, context: dict[str, Any]) -> dict[str, Any]:
@@ -256,7 +267,8 @@ def image_generate_tool(content: str, context: dict[str, Any]) -> dict[str, Any]
     target = resolve_tool_path(output_path)
     target.parent.mkdir(parents=True, exist_ok=True)
 
-    image = generate_huggingface_image(provider, api_key, model, prompt)
+    candidates = image_model_candidates(ImageModelCandidate(provider=provider, model=model))
+    image, selected_candidate, attempts = generate_huggingface_image_with_fallbacks(candidates, api_key, prompt)
     image.save(target, format=image_save_format(target))
     mime_type = mimetypes.guess_type(target.name)[0] or "image/png"
 
@@ -264,8 +276,9 @@ def image_generate_tool(content: str, context: dict[str, Any]) -> dict[str, Any]
         "path": output_path,
         "absolutePath": str(target),
         "publicUrl": public_tool_url(output_path),
-        "provider": provider,
-        "model": model,
+        "provider": selected_candidate.provider,
+        "model": selected_candidate.model,
+        "attempts": attempts,
         "mimeType": mime_type,
         "bytesWritten": target.stat().st_size,
     }
@@ -368,6 +381,78 @@ def generate_huggingface_image(provider: str, api_key: str, model: str, prompt: 
 
     client = InferenceClient(provider=provider, api_key=api_key)
     return client.text_to_image(prompt, model=model)
+
+
+def generate_huggingface_image_with_fallbacks(
+    candidates: list[ImageModelCandidate], api_key: str, prompt: str
+) -> tuple[Any, ImageModelCandidate, list[dict[str, str]]]:
+    attempts: list[dict[str, str]] = []
+    for candidate in candidates:
+        try:
+            image = generate_huggingface_image(candidate.provider, api_key, candidate.model, prompt)
+            attempts.append(
+                {
+                    "provider": candidate.provider,
+                    "model": candidate.model,
+                    "status": "COMPLETED",
+                }
+            )
+            return image, candidate, attempts
+        except Exception as exc:
+            attempts.append(
+                {
+                    "provider": candidate.provider,
+                    "model": candidate.model,
+                    "status": "FAILED",
+                    "error": sanitized_provider_error(exc, api_key),
+                }
+            )
+
+    errors = " | ".join(
+        f"{attempt['provider']}:{attempt['model']} -> {attempt.get('error', 'failed')}" for attempt in attempts
+    )
+    raise ToolExecutionError(f"Hugging Face image generation failed for all configured models. {errors}")
+
+
+def image_model_candidates(primary: ImageModelCandidate) -> list[ImageModelCandidate]:
+    candidates = [primary]
+    candidates.extend(parse_image_fallbacks(os.getenv("HF_IMAGE_FALLBACKS", "")))
+    candidates.extend(ImageModelCandidate(provider=provider, model=model) for provider, model in DEFAULT_HF_IMAGE_FALLBACKS)
+
+    unique: list[ImageModelCandidate] = []
+    seen: set[tuple[str, str]] = set()
+    for candidate in candidates:
+        provider = candidate.provider.strip()
+        model = candidate.model.strip()
+        if not provider or not model:
+            continue
+        key = (provider, model)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(ImageModelCandidate(provider=provider, model=model))
+    return unique
+
+
+def parse_image_fallbacks(raw_value: str) -> list[ImageModelCandidate]:
+    candidates: list[ImageModelCandidate] = []
+    for item in raw_value.split(","):
+        entry = item.strip()
+        if not entry:
+            continue
+        if "|" not in entry:
+            continue
+        provider, model = entry.split("|", 1)
+        if provider.strip() and model.strip():
+            candidates.append(ImageModelCandidate(provider=provider.strip(), model=model.strip()))
+    return candidates
+
+
+def sanitized_provider_error(exc: Exception, api_key: str) -> str:
+    text = str(exc)
+    if api_key:
+        text = text.replace(api_key, "[HF_TOKEN]")
+    return re.sub(r"\s+", " ", text).strip()[:400]
 
 
 def image_save_format(path: Path) -> str:

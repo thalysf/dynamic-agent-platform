@@ -958,6 +958,7 @@ GROQ_MODEL=meta-llama/llama-4-scout-17b-16e-instruct
 HF_TOKEN=replace-me
 HF_IMAGE_PROVIDER=wavespeed
 HF_IMAGE_MODEL=black-forest-labs/FLUX.1-dev
+HF_IMAGE_FALLBACKS=together|black-forest-labs/FLUX.1-schnell,hf-inference|black-forest-labs/FLUX.1-schnell,hf-inference|stabilityai/stable-diffusion-3-medium-diffusers
 FRONTEND_API_BASE_URL=http://localhost:8080
 VITE_API_BASE_URL=http://localhost:8080
 ```

@@ -64,7 +64,7 @@ Structured tool input can be sent as JSON in the pipeline input or previous agen
 }
 ```
 
-`file_write` also accepts `contentBase64` for binary files. `web_search` uses resilient fallbacks across DuckDuckGo instant answer, DuckDuckGo HTML results and Wikipedia OpenSearch. `image_generate` uses Hugging Face Inference Providers when `HF_TOKEN` is configured. The default provider is `wavespeed`, and the default model is `black-forest-labs/FLUX.1-dev`.
+`file_write` also accepts `contentBase64` for binary files. `web_search` uses resilient fallbacks across DuckDuckGo instant answer, DuckDuckGo HTML results and Wikipedia OpenSearch. `image_generate` uses Hugging Face Inference Providers when `HF_TOKEN` is configured. The default provider is `wavespeed`, and the default model is `black-forest-labs/FLUX.1-dev`; if that provider is out of quota, the tool tries the configured `HF_IMAGE_FALLBACKS` list and then built-in fallbacks tested with `together` and `hf-inference`. Fallback entries use `provider|model`, separated by commas.
 
 When no structured JSON is provided, `file_write` saves the received text to a contextual `.txt` file in the tool workspace, and `image_generate` uses the received text as the prompt. Generated files include a local `publicUrl` so the Playground can preview images from tool calls.
 

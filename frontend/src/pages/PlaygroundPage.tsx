@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { ReactNode, createContext, useContext, useEffect, useMemo, useState } from 'react';
 import {
   Background,
   Controls,
@@ -100,6 +100,13 @@ type ToolCall = {
     path?: string;
     absolutePath?: string;
     mimeType?: string;
+    bytesRead?: number;
+    bytesWritten?: number;
+    query?: string;
+    source?: string;
+    content?: string;
+    contentBase64?: string;
+    [key: string]: unknown;
   };
   error?: string;
 };
@@ -112,7 +119,11 @@ type StepDetailPreview = {
   step: ExecutionStep;
   status: Execution['status'];
   toolCalls: ToolCall[];
+  agentName: string;
 };
+type SummaryBlock =
+  | { type: 'heading' | 'paragraph'; text: string }
+  | { type: 'ordered-list' | 'unordered-list'; items: string[] };
 
 const EMPTY_GRAPH_PLAN: GraphPlan = {
   nodes: [],
@@ -443,6 +454,113 @@ function prettyJson(value: string | null) {
   }
 }
 
+function renderInlineMarkdown(text: string): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  const pattern = /\*\*([^*]+)\*\*/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      nodes.push(text.slice(lastIndex, match.index));
+    }
+    nodes.push(<strong key={`${match.index}-${match[1]}`}>{match[1]}</strong>);
+    lastIndex = pattern.lastIndex;
+  }
+
+  if (lastIndex < text.length) {
+    nodes.push(text.slice(lastIndex));
+  }
+
+  return nodes.length ? nodes : [text];
+}
+
+function parseSummaryBlocks(value: string): SummaryBlock[] {
+  const blocks: SummaryBlock[] = [];
+  let activeList: SummaryBlock | null = null;
+
+  const flushList = () => {
+    if (activeList) {
+      blocks.push(activeList);
+      activeList = null;
+    }
+  };
+
+  for (const rawLine of value.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) {
+      flushList();
+      continue;
+    }
+
+    const heading = line.match(/^\*\*(.+?)\*\*:?\s*$/);
+    if (heading) {
+      flushList();
+      blocks.push({ type: 'heading', text: heading[1] });
+      continue;
+    }
+
+    const ordered = line.match(/^\d+\.\s+(.+)$/);
+    if (ordered) {
+      if (!activeList || activeList.type !== 'ordered-list') {
+        flushList();
+        activeList = { type: 'ordered-list', items: [] };
+      }
+      activeList.items.push(ordered[1]);
+      continue;
+    }
+
+    const unordered = line.match(/^[*-]\s+(.+)$/);
+    if (unordered) {
+      if (!activeList || activeList.type !== 'unordered-list') {
+        flushList();
+        activeList = { type: 'unordered-list', items: [] };
+      }
+      activeList.items.push(unordered[1]);
+      continue;
+    }
+
+    flushList();
+    blocks.push({ type: 'paragraph', text: line });
+  }
+
+  flushList();
+  return blocks;
+}
+
+function renderFormattedSummary(value: string | null) {
+  const fallback = value?.trim() || 'Sem output final.';
+  const blocks = parseSummaryBlocks(fallback);
+
+  return blocks.map((block, index) => {
+    if (block.type === 'heading') {
+      return <h3 key={`heading-${index}`}>{renderInlineMarkdown(block.text)}</h3>;
+    }
+    if (block.type === 'paragraph') {
+      return <p key={`paragraph-${index}`}>{renderInlineMarkdown(block.text)}</p>;
+    }
+    if (block.type === 'ordered-list') {
+      return (
+        <ol key={`list-${index}`}>
+          {block.items.map((item, itemIndex) => (
+            <li key={`${index}-${itemIndex}`}>{renderInlineMarkdown(item)}</li>
+          ))}
+        </ol>
+      );
+    }
+    if (block.type === 'unordered-list') {
+      return (
+      <ul key={`list-${index}`}>
+        {block.items.map((item, itemIndex) => (
+          <li key={`${index}-${itemIndex}`}>{renderInlineMarkdown(item)}</li>
+        ))}
+      </ul>
+      );
+    }
+    return null;
+  });
+}
+
 function parseToolCalls(value: string | null): ToolCall[] {
   if (!value) {
     return [];
@@ -463,6 +581,46 @@ function imageToolCalls(value: string | null): ToolCall[] {
 
 function hasFailedToolCalls(value: string | null) {
   return parseToolCalls(value).some((call) => call.status === 'FAILED');
+}
+
+function shortText(value: unknown, maxLength = 110) {
+  const text = typeof value === 'string' ? value : value == null ? '' : String(value);
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  return normalized.length > maxLength ? `${normalized.slice(0, maxLength - 3)}...` : normalized;
+}
+
+function toolCallSummary(call: ToolCall) {
+  if (call.error) {
+    return shortText(call.error, 140);
+  }
+  const result = call.result;
+  if (!result) {
+    return 'Sem detalhe registrado.';
+  }
+  if (result.path) {
+    const bytes = result.bytesRead ?? result.bytesWritten;
+    return `${result.path}${bytes ? ` - ${bytes} bytes` : ''}`;
+  }
+  if (result.query) {
+    return `${result.query}${result.source ? ` - ${result.source}` : ''}`;
+  }
+  if (result.content) {
+    return shortText(result.content, 140);
+  }
+  if (result.contentBase64) {
+    return 'Conteudo binario em base64.';
+  }
+  return shortText(JSON.stringify(result), 140) || 'Sem detalhe registrado.';
+}
+
+function toolStatusClass(status?: string) {
+  if (status === 'FAILED') {
+    return 'failed';
+  }
+  if (status === 'COMPLETED') {
+    return 'completed';
+  }
+  return 'pending';
 }
 
 function effectiveStepStatus(step: ExecutionStep): Execution['status'] {
@@ -489,6 +647,14 @@ function displayStatusForExecution(execution: Execution, summary?: StepSummary):
     return 'FAILED';
   }
   return execution.status;
+}
+
+function resolveStepAgentName(step: ExecutionStep, agentById: Map<string, Agent>, graphPlan: GraphPlan) {
+  if (step.agentId && agentById.has(step.agentId)) {
+    return agentById.get(step.agentId)?.name ?? step.agentId;
+  }
+  const plannedStep = graphPlan.nodes.find((node) => node.nodeId === step.nodeId);
+  return plannedStep?.label || step.agentId || step.nodeId || 'Agente nao encontrado';
 }
 
 function runModeFromDisplayStatus(status: DisplayStatus): RunMode {
@@ -687,12 +853,13 @@ function PlaygroundPage({
   const [historyStepSummaries, setHistoryStepSummaries] = useState<Map<string, StepSummary>>(new Map());
 
   const graphPlan = useMemo(() => buildGraphPlan(selectedPipeline, agents), [agents, selectedPipeline]);
+  const agentById = useMemo(() => new Map(agents.map((agent) => [agent.id, agent])), [agents]);
   const finishedCount = liveSteps.filter((step) => step.status === 'completed' || step.status === 'failed').length;
   const progressPercent = liveSteps.length ? Math.round((finishedCount / liveSteps.length) * 100) : 0;
   const executionHistoryKey = useMemo(() => executions.map((execution) => execution.id).join('|'), [executions]);
-  const selectedDisplayStatus = selectedExecution
-    ? displayStatusForExecution(selectedExecution, summarizeExecutionSteps(steps))
-    : null;
+  const selectedStepSummary = useMemo(() => summarizeExecutionSteps(steps), [steps]);
+  const selectedDisplayStatus = selectedExecution ? displayStatusForExecution(selectedExecution, selectedStepSummary) : null;
+  const failedStepCount = steps.filter((step) => effectiveStepStatus(step) === 'FAILED').length;
 
   useEffect(() => {
     setSelectedExecution(null);
@@ -905,89 +1072,133 @@ function PlaygroundPage({
           </div>
         </article>
 
-        <article className="rounded border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 className="text-xl font-semibold">Resultado</h2>
-          {selectedExecution ? (
-            <div className="mt-4 rounded border border-slate-200 p-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <p className="text-sm font-semibold">{statusLabel(selectedDisplayStatus ?? selectedExecution.status)}</p>
-                <span className={`rounded border px-2 py-1 text-xs font-medium ${statusClass(selectedDisplayStatus ?? selectedExecution.status)}`}>
-                  {statusBadgeText(selectedDisplayStatus ?? selectedExecution.status)}
-                </span>
-              </div>
-              <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">
-                {selectedExecution.finalOutput || selectedExecution.errorMessage || 'Sem output final.'}
-              </p>
+        <article className="execution-results-section">
+          <div className="execution-results-header">
+            <div>
+              <p className="text-xs font-semibold uppercase text-emerald-700">Resultado</p>
+              <h2 className="mt-1 text-xl font-semibold text-slate-950">Resumo e traces</h2>
             </div>
+            {selectedExecution ? (
+              <span className={`rounded border px-2 py-1 text-xs font-medium ${statusClass(selectedDisplayStatus ?? selectedExecution.status)}`}>
+                {statusBadgeText(selectedDisplayStatus ?? selectedExecution.status)}
+              </span>
+            ) : null}
+          </div>
+
+          {selectedExecution ? (
+            <>
+              <section className="result-summary-panel">
+                <div className="result-summary-meta">
+                  <span>{statusLabel(selectedDisplayStatus ?? selectedExecution.status)}</span>
+                  <span>{selectedStepSummary.total} steps</span>
+                  {failedStepCount ? <span>{failedStepCount} falha(s)</span> : <span>sem falhas registradas</span>}
+                </div>
+                <div className="result-summary-content">
+                  {renderFormattedSummary(selectedExecution.finalOutput || selectedExecution.errorMessage)}
+                </div>
+              </section>
+
+              {steps.length ? (
+                <div className="trace-grid">
+                  {steps.map((step) => {
+                    const stepStatus = effectiveStepStatus(step);
+                    const toolCalls = parseToolCalls(step.toolCalls);
+                    const images = imageToolCalls(step.toolCalls);
+                    const agentName = resolveStepAgentName(step, agentById, graphPlan);
+                    return (
+                      <article className={`trace-card ${stepStatus === 'FAILED' ? 'failed' : ''}`} key={step.id}>
+                        <div className="trace-card-header">
+                          <div className="min-w-0">
+                            <p className="trace-step-label">Step {step.stepIndex}</p>
+                            <h3>{agentName}</h3>
+                            <p className="trace-node-id">{step.nodeId || step.agentId || step.id}</p>
+                          </div>
+                          <span className={`trace-status-pill ${stepStatus === 'FAILED' ? 'failed' : 'completed'}`}>
+                            {statusLabel(stepStatus)}
+                          </span>
+                        </div>
+
+                        <div className="trace-card-body">
+                          <section className="trace-section">
+                            <div className="trace-section-header">
+                              <h4>Input recebido</h4>
+                            </div>
+                            <p className="trace-preview input">{step.input || 'Sem input registrado.'}</p>
+                          </section>
+
+                          <section className="trace-section">
+                            <div className="trace-section-header">
+                              <h4>Output produzido</h4>
+                              <button
+                                className="trace-detail-link"
+                                onClick={() => setStepDetailPreview({ step, status: stepStatus, toolCalls, agentName })}
+                                type="button"
+                              >
+                                Ver completo
+                              </button>
+                            </div>
+                            <button
+                              className={`trace-preview output ${stepStatus === 'FAILED' ? 'failed' : ''}`}
+                              onClick={() => setStepDetailPreview({ step, status: stepStatus, toolCalls, agentName })}
+                              type="button"
+                            >
+                              {step.output || step.errorMessage || 'Sem output registrado.'}
+                            </button>
+                          </section>
+
+                          {toolCalls.length ? (
+                            <section className="trace-section">
+                              <div className="trace-section-header">
+                                <h4>Tool calls</h4>
+                              </div>
+                              <div className="trace-tool-list">
+                                {toolCalls.map((call, index) => (
+                                  <div className="trace-tool-item" key={`${step.id}-${call.toolName ?? 'tool'}-${index}`}>
+                                    <div className="min-w-0">
+                                      <span className="trace-tool-name">{call.toolName || 'tool'}</span>
+                                      <p>{toolCallSummary(call)}</p>
+                                    </div>
+                                    <span className={`trace-tool-status ${toolStatusClass(call.status)}`}>
+                                      {call.status || 'PENDING'}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                              {images.length ? (
+                                <div className="trace-actions">
+                                  {images.map((call, index) => (
+                                    <button
+                                      className="trace-image-button"
+                                      key={`${step.id}-${call.result?.publicUrl ?? index}`}
+                                      onClick={() =>
+                                        setImagePreview({
+                                          url: call.result?.publicUrl ?? '',
+                                          title: `Imagem gerada - Step ${step.stepIndex}`,
+                                          path: call.result?.path || call.result?.absolutePath || '',
+                                        })
+                                      }
+                                      type="button"
+                                    >
+                                      Abrir imagem
+                                    </button>
+                                  ))}
+                                </div>
+                              ) : null}
+                            </section>
+                          ) : null}
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="trace-empty-state">Traces ainda nao carregados para esta execucao.</p>
+              )}
+            </>
           ) : (
-            <p className="mt-3 text-sm text-slate-600">Escolha uma pipeline pronta e execute um input para inspecionar a resposta.</p>
+            <p className="trace-empty-state">Escolha uma pipeline pronta e execute um input para inspecionar a resposta.</p>
           )}
         </article>
-
-        <div className="grid gap-4 lg:grid-cols-2">
-          {steps.map((step) => {
-            const stepStatus = effectiveStepStatus(step);
-            const toolCalls = parseToolCalls(step.toolCalls);
-            const images = imageToolCalls(step.toolCalls);
-            return (
-            <article className={`trace-card ${stepStatus === 'FAILED' ? 'failed' : ''}`} key={step.id}>
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-xs font-semibold uppercase text-slate-500">Step {step.stepIndex}</p>
-                  <h3 className="mt-1 break-words font-semibold">{step.nodeId || step.agentId}</h3>
-                </div>
-                <span className={`shrink-0 rounded border px-2 py-1 text-xs font-medium ${statusClass(stepStatus)}`}>{statusLabel(stepStatus)}</span>
-              </div>
-              <div className="mt-4 grid gap-4">
-                <section>
-                  <h4 className="text-xs font-semibold uppercase text-slate-500">Input recebido</h4>
-                  <p className="trace-preview input">
-                    {step.input || 'Sem input registrado.'}
-                  </p>
-                </section>
-                <section>
-                  <h4 className="text-xs font-semibold uppercase text-slate-500">Output produzido</h4>
-                  <button
-                    className={`trace-preview output ${stepStatus === 'FAILED' ? 'failed' : ''}`}
-                    onClick={() => setStepDetailPreview({ step, status: stepStatus, toolCalls })}
-                    type="button"
-                  >
-                    {step.output || step.errorMessage || 'Sem output registrado.'}
-                  </button>
-                </section>
-                {step.toolCalls ? (
-                  <section>
-                    <h4 className="text-xs font-semibold uppercase text-slate-500">Tool calls</h4>
-                    {images.length ? (
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {images.map((call, index) => (
-                          <button
-                            className="rounded border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs font-semibold text-cyan-900 hover:bg-cyan-100"
-                            key={`${step.id}-${call.result?.publicUrl ?? index}`}
-                            onClick={() =>
-                              setImagePreview({
-                                url: call.result?.publicUrl ?? '',
-                                title: `Imagem gerada - Step ${step.stepIndex}`,
-                                path: call.result?.path || call.result?.absolutePath || '',
-                              })
-                            }
-                            type="button"
-                          >
-                            Abrir imagem
-                          </button>
-                        ))}
-                      </div>
-                    ) : null}
-                    <pre className="trace-tool-calls">
-                      {prettyJson(step.toolCalls)}
-                    </pre>
-                  </section>
-                ) : null}
-              </div>
-            </article>
-            );
-          })}
-        </div>
       </section>
     </div>
     {imagePreview ? (
@@ -1025,7 +1236,9 @@ function PlaygroundPage({
           <div className="detail-preview-header">
             <div className="min-w-0">
               <p className="text-xs font-semibold uppercase text-cyan-200">Trace completo</p>
-              <h2 className="mt-1 break-words text-lg font-semibold text-white">Step {stepDetailPreview.step.stepIndex}</h2>
+              <h2 className="mt-1 break-words text-lg font-semibold text-white">
+                Step {stepDetailPreview.step.stepIndex} - {stepDetailPreview.agentName}
+              </h2>
               <p className="mt-1 break-all text-xs text-slate-300">
                 {stepDetailPreview.step.nodeId || stepDetailPreview.step.agentId || stepDetailPreview.step.id}
               </p>

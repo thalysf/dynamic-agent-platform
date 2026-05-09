@@ -362,33 +362,209 @@ body {
   object-fit: contain;
 }
 
+.execution-results-section {
+  display: grid;
+  gap: 18px;
+  border: 1px solid rgb(226, 232, 240);
+  border-radius: 8px;
+  background: linear-gradient(180deg, #ffffff, #f8fafc);
+  padding: 20px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+
+.execution-results-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid rgb(226, 232, 240);
+  padding-bottom: 16px;
+}
+
+.result-summary-panel {
+  border-left: 4px solid #10b981;
+  background: rgb(240, 253, 250);
+  padding: 16px;
+}
+
+.result-summary-content {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.result-summary-content h3 {
+  color: rgb(15, 118, 110);
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.45;
+  margin: 4px 0 0;
+}
+
+.result-summary-content p {
+  margin: 0;
+  color: rgb(30, 41, 59);
+  font-size: 14px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+.result-summary-content ol,
+.result-summary-content ul {
+  color: rgb(30, 41, 59);
+  display: grid;
+  gap: 7px;
+  font-size: 14px;
+  line-height: 1.65;
+  margin: 0;
+  padding-left: 22px;
+}
+
+.result-summary-content strong {
+  color: rgb(15, 23, 42);
+  font-weight: 800;
+}
+
+.result-summary-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.result-summary-meta span {
+  border: 1px solid rgba(13, 148, 136, 0.22);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  color: rgb(15, 118, 110);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 8px;
+}
+
+.trace-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
+}
+
 .trace-card {
   min-width: 0;
   overflow: hidden;
   border: 1px solid rgb(226, 232, 240);
   border-radius: 8px;
   background: #fff;
-  padding: 20px;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.07);
 }
 
 .trace-card.failed {
   border-color: rgb(252, 165, 165);
-  background: rgb(254, 242, 242);
+  background: linear-gradient(180deg, rgb(255, 255, 255), rgb(254, 242, 242));
+}
+
+.trace-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  border-bottom: 1px solid rgb(226, 232, 240);
+  padding: 16px;
+}
+
+.trace-step-label {
+  color: rgb(71, 85, 105);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.trace-card-header h3 {
+  color: rgb(15, 23, 42);
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1.35;
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.trace-node-id {
+  color: rgb(100, 116, 139);
+  font-size: 11px;
+  line-height: 1.45;
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.trace-status-pill {
+  border: 1px solid rgb(167, 243, 208);
+  border-radius: 999px;
+  background: rgb(236, 253, 245);
+  color: rgb(6, 95, 70);
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 4px 8px;
+}
+
+.trace-status-pill.failed {
+  border-color: rgb(252, 165, 165);
+  background: rgb(254, 226, 226);
+  color: rgb(127, 29, 29);
+}
+
+.trace-card-body {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
+.trace-section {
+  min-width: 0;
+}
+
+.trace-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.trace-section-header h4 {
+  color: rgb(71, 85, 105);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.trace-detail-link {
+  border: 0;
+  background: transparent;
+  color: rgb(3, 105, 161);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 0;
+}
+
+.trace-detail-link:hover {
+  color: rgb(14, 116, 144);
 }
 
 .trace-preview {
   display: block;
   width: 100%;
   max-width: 100%;
-  max-height: 192px;
+  max-height: 172px;
   overflow: auto;
-  border: 0;
+  border: 1px solid rgb(226, 232, 240);
   border-radius: 8px;
   padding: 12px;
   color: rgb(51, 65, 85);
   font-size: 12px;
-  line-height: 1.55;
+  line-height: 1.6;
   overflow-wrap: anywhere;
   text-align: left;
   white-space: pre-wrap;
@@ -402,14 +578,15 @@ body {
 
 .trace-preview.output {
   margin-top: 8px;
-  max-height: 256px;
+  max-height: 220px;
   background: rgb(236, 253, 245);
   color: rgb(30, 41, 59);
   cursor: pointer;
 }
 
 .trace-preview.output:hover {
-  outline: 2px solid rgba(16, 185, 129, 0.28);
+  border-color: rgba(16, 185, 129, 0.45);
+  outline: 2px solid rgba(16, 185, 129, 0.18);
 }
 
 .trace-preview.output.failed {
@@ -418,23 +595,95 @@ body {
 }
 
 .trace-preview.output.failed:hover {
-  outline-color: rgba(248, 113, 113, 0.42);
+  border-color: rgba(248, 113, 113, 0.55);
+  outline-color: rgba(248, 113, 113, 0.28);
 }
 
-.trace-tool-calls {
-  max-width: 100%;
-  max-height: 256px;
-  overflow: auto;
-  border-radius: 8px;
-  background: rgb(2, 6, 23);
-  color: rgb(241, 245, 249);
-  font-size: 12px;
-  line-height: 1.55;
+.trace-tool-list {
+  display: grid;
+  gap: 8px;
   margin-top: 8px;
+}
+
+.trace-tool-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid rgb(226, 232, 240);
+  border-radius: 8px;
+  background: rgb(248, 250, 252);
+  padding: 10px;
+}
+
+.trace-tool-name {
+  color: rgb(15, 23, 42);
+  display: block;
+  font-size: 12px;
+  font-weight: 800;
   overflow-wrap: anywhere;
-  padding: 12px;
-  white-space: pre-wrap;
-  word-break: break-word;
+}
+
+.trace-tool-item p {
+  color: rgb(71, 85, 105);
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 3px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.trace-tool-status {
+  border-radius: 999px;
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 4px 7px;
+}
+
+.trace-tool-status.completed {
+  background: rgb(220, 252, 231);
+  color: rgb(22, 101, 52);
+}
+
+.trace-tool-status.failed {
+  background: rgb(254, 226, 226);
+  color: rgb(153, 27, 27);
+}
+
+.trace-tool-status.pending {
+  background: rgb(226, 232, 240);
+  color: rgb(51, 65, 85);
+}
+
+.trace-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.trace-image-button {
+  border: 1px solid rgb(165, 243, 252);
+  border-radius: 8px;
+  background: rgb(236, 254, 255);
+  color: rgb(22, 78, 99);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 8px 10px;
+}
+
+.trace-image-button:hover {
+  background: rgb(207, 250, 254);
+}
+
+.trace-empty-state {
+  border: 1px dashed rgb(203, 213, 225);
+  border-radius: 8px;
+  color: rgb(71, 85, 105);
+  font-size: 14px;
+  margin: 0;
+  padding: 16px;
 }
 
 .detail-preview-backdrop {

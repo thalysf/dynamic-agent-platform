@@ -6,7 +6,7 @@ from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict
 
 from app.a2a.message import A2AMessage
-from app.llm.groq_client import generate_agent_output
+from app.llm.groq_client import generate_agent_output, summarize_execution_output
 from app.mcp.tools import run_allowed_tools
 from app.schemas.orchestration import AgentPayload, OrchestrationRunRequest
 
@@ -61,9 +61,11 @@ def execute_pipeline_graph(request: OrchestrationRunRequest) -> dict[str, Any]:
         }
     )
     outputs_by_node = output_map(result["outputs"])
+    sorted_steps = sorted(result["steps"], key=lambda step: step["index"])
+    terminal_output = compute_final_output(outputs_by_node, graph_spec["terminal_ids"], graph_spec["ordered_ids"])
     return {
-        "final_output": compute_final_output(outputs_by_node, graph_spec["terminal_ids"], graph_spec["ordered_ids"]),
-        "steps": sorted(result["steps"], key=lambda step: step["index"]),
+        "final_output": summarize_execution_output(request.initialInput.content, sorted_steps, terminal_output),
+        "steps": sorted_steps,
     }
 
 

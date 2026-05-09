@@ -1,4 +1,4 @@
-import base64
+﻿import base64
 import difflib
 import html
 import json
@@ -17,17 +17,8 @@ import urllib.error
 
 ToolHandler = Callable[[str, dict[str, Any]], dict[str, Any]]
 
-GEMINI_IMAGE_MODELS = (
-    "gemini-3.1-flash-image-preview",
-    "gemini-3-pro-image-preview",
-    "gemini-2.5-flash-image",
-    "gemini-2.0-flash-preview-image-generation",
-)
-IMAGEN_IMAGE_MODELS = (
-    "imagen-4.0-fast-generate-001",
-    "imagen-4.0-generate-001",
-    "imagen-4.0-ultra-generate-001",
-)
+DEFAULT_HF_IMAGE_PROVIDER = "wavespeed"
+DEFAULT_HF_IMAGE_MODEL = "black-forest-labs/FLUX.1-dev"
 
 
 class ToolExecutionError(ValueError):
@@ -50,7 +41,7 @@ def echo_context_tool(content: str, context: dict[str, Any]) -> dict[str, Any]:
 
 def file_write_tool(content: str, context: dict[str, Any]) -> dict[str, Any]:
     payload = extract_tool_payload(content, "file_write")
-    path = optional_string(payload, "path") or default_text_path()
+    path = optional_string(payload, "path") or default_text_path(content, payload, context)
     target = resolve_tool_path(path)
     overwrite = bool(payload.get("overwrite", False))
 
@@ -250,41 +241,34 @@ def image_generate_tool(content: str, context: dict[str, Any]) -> dict[str, Any]
     if not prompt:
         raise ToolExecutionError("image_generate requires a prompt.")
 
-    api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    api_key = os.getenv("HF_TOKEN", "").strip()
     if not api_key or api_key == "replace-me":
-        raise ToolExecutionError("GEMINI_API_KEY is not configured.")
+        raise ToolExecutionError("HF_TOKEN is not configured.")
 
-    models = configured_google_image_models(api_key)
+    provider = optional_string(payload, "provider") or os.getenv("HF_IMAGE_PROVIDER", DEFAULT_HF_IMAGE_PROVIDER).strip()
+    model = optional_string(payload, "model") or os.getenv("HF_IMAGE_MODEL", DEFAULT_HF_IMAGE_MODEL).strip()
+    if not provider:
+        provider = DEFAULT_HF_IMAGE_PROVIDER
+    if not model:
+        model = DEFAULT_HF_IMAGE_MODEL
+
     output_path = str(payload.get("path") or default_image_path())
     target = resolve_tool_path(output_path)
     target.parent.mkdir(parents=True, exist_ok=True)
 
-    attempts: list[dict[str, str]] = []
-    for model in models:
-        response = try_google_image_model(model, api_key, prompt)
-        attempts.append({"model": model, "status": response["status"], "detail": response["detail"]})
-        if response["status"] != "COMPLETED":
-            continue
+    image = generate_huggingface_image(provider, api_key, model, prompt)
+    image.save(target, format=image_save_format(target))
+    mime_type = mimetypes.guess_type(target.name)[0] or "image/png"
 
-        image_data, mime_type, text_parts = extract_google_image(response["payload"])
-        if image_data is None:
-            attempts[-1]["status"] = "FAILED"
-            attempts[-1]["detail"] = "response did not include image bytes"
-            continue
-
-        target.write_bytes(image_data)
-        return {
-            "path": output_path,
-            "absolutePath": str(target),
-            "publicUrl": public_tool_url(output_path),
-            "model": model,
-            "mimeType": mime_type,
-            "bytesWritten": len(image_data),
-            "text": "\n".join(text_parts),
-            "attempts": attempts,
-        }
-
-    raise ToolExecutionError("image_generate failed for all image models. " + summarize_image_attempts(attempts))
+    return {
+        "path": output_path,
+        "absolutePath": str(target),
+        "publicUrl": public_tool_url(output_path),
+        "provider": provider,
+        "model": model,
+        "mimeType": mime_type,
+        "bytesWritten": target.stat().st_size,
+    }
 
 
 TOOL_REGISTRY: dict[str, ToolSpec] = {
@@ -379,119 +363,20 @@ def positive_int(value: Any, default: int) -> int:
     return parsed if parsed > 0 else default
 
 
-def configured_google_image_models(api_key: str) -> list[str]:
-    primary = os.getenv("GEMINI_IMAGE_MODEL", "").strip()
-    fallback_values = os.getenv("GEMINI_IMAGE_FALLBACK_MODELS", "")
-    models: list[str] = []
-    for model in [
-        primary,
-        *fallback_values.split(","),
-        *discover_google_image_models(api_key),
-        *GEMINI_IMAGE_MODELS,
-        *IMAGEN_IMAGE_MODELS,
-    ]:
-        normalized = model.strip()
-        if normalized and normalized not in models:
-            models.append(normalized)
-    return models
+def generate_huggingface_image(provider: str, api_key: str, model: str, prompt: str) -> Any:
+    from huggingface_hub import InferenceClient
+
+    client = InferenceClient(provider=provider, api_key=api_key)
+    return client.text_to_image(prompt, model=model)
 
 
-def discover_google_image_models(api_key: str) -> list[str]:
-    if os.getenv("GEMINI_IMAGE_DISCOVERY_ENABLED", "true").strip().lower() in {"0", "false", "no"}:
-        return []
-
-    endpoint = "https://generativelanguage.googleapis.com/v1beta/models"
-    request = urllib.request.Request(
-        endpoint,
-        headers={
-            "Accept": "application/json",
-            "User-Agent": "AgentFlowStudio/0.1",
-            "x-goog-api-key": api_key,
-        },
-    )
-    timeout = float(os.getenv("GEMINI_IMAGE_TIMEOUT_SECONDS", "30"))
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-    except Exception:
-        return []
-
-    discovered: list[str] = []
-    for model_info in payload.get("models", []):
-        if not isinstance(model_info, dict):
-            continue
-        name = str(model_info.get("name") or "").removeprefix("models/")
-        display_name = str(model_info.get("displayName") or "")
-        methods = model_info.get("supportedGenerationMethods", [])
-        supports_image_generation = (
-            ("generateContent" in methods and "image" in f"{name} {display_name}".lower())
-            or ("predict" in methods and name.startswith("imagen-"))
-        )
-        if name and supports_image_generation:
-            discovered.append(name)
-    return discovered
-
-
-def try_google_image_model(model: str, api_key: str, prompt: str) -> dict[str, Any]:
-    try:
-        payload = call_google_image_api(model, api_key, prompt)
-        return {"status": "COMPLETED", "detail": "ok", "payload": payload}
-    except urllib.error.HTTPError as exc:
-        detail = summarize_http_error(exc)
-        return {"status": "FAILED", "detail": f"HTTP {exc.code}: {detail}", "payload": {}}
-    except Exception as exc:
-        return {"status": "FAILED", "detail": str(exc)[:500], "payload": {}}
-
-
-def call_google_image_api(model: str, api_key: str, prompt: str) -> dict[str, Any]:
-    if is_imagen_model(model):
-        endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{urllib.parse.quote(model)}:predict"
-        request_body = {
-            "instances": [{"prompt": prompt}],
-            "parameters": {"sampleCount": 1},
-        }
-    else:
-        endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{urllib.parse.quote(model)}:generateContent"
-        request_body = {
-            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-        }
-
-    request = urllib.request.Request(
-        endpoint,
-        data=json.dumps(request_body).encode("utf-8"),
-        headers={
-            "Content-Type": "application/json",
-            "User-Agent": "AgentFlowStudio/0.1",
-            "x-goog-api-key": api_key,
-        },
-        method="POST",
-    )
-    timeout = float(os.getenv("GEMINI_IMAGE_TIMEOUT_SECONDS", "30"))
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        return json.loads(response.read().decode("utf-8"))
-
-
-def summarize_http_error(exc: urllib.error.HTTPError) -> str:
-    detail = exc.read().decode("utf-8", errors="replace")
-    try:
-        parsed = json.loads(detail)
-        error = parsed.get("error") if isinstance(parsed, dict) else None
-        if isinstance(error, dict):
-            message = str(error.get("message") or "").replace("\n", " ").strip()
-            status = str(error.get("status") or "").strip()
-            return f"{status} {message}".strip()[:500]
-    except json.JSONDecodeError:
-        pass
-    return detail.replace("\n", " ").strip()[:500]
-
-
-def summarize_image_attempts(attempts: list[dict[str, str]]) -> str:
-    compact = [f"{attempt['model']}: {attempt['detail']}" for attempt in attempts]
-    return " | ".join(compact)[:1800]
-
-
-def is_imagen_model(model: str) -> bool:
-    return model.startswith("imagen-")
+def image_save_format(path: Path) -> str:
+    suffix = path.suffix.lower()
+    if suffix in {".jpg", ".jpeg"}:
+        return "JPEG"
+    if suffix == ".webp":
+        return "WEBP"
+    return "PNG"
 
 
 def tool_workspace_root() -> Path:
@@ -584,30 +469,88 @@ def find_matching_workspace_file(query: str) -> Path | None:
         if direct is not None and direct.exists() and direct.is_file():
             return direct
 
-    search_text = " ".join(candidates) if candidates else query
+    search_text = file_search_text(query, candidates)
     normalized_query = normalize_for_match(search_text)
     if not normalized_query:
         return None
 
     scored: list[tuple[float, Path]] = []
-    query_terms = set(normalized_query.split())
+    query_terms = meaningful_match_terms(normalized_query)
+    if not query_terms:
+        query_terms = set(normalized_query.split())
     for file_path in files[: env_int("AGENTFLOW_TOOL_MAX_SEARCH_FILES", 2000)]:
         relative = file_path.relative_to(root).as_posix()
         normalized_file = normalize_for_match(f"{relative} {file_path.stem}")
-        file_terms = set(normalized_file.split())
-        overlap = len(query_terms & file_terms) / max(1, len(query_terms))
+        filename_terms = meaningful_match_terms(normalized_file)
+        name_overlap = len(query_terms & filename_terms) / max(1, len(query_terms))
         ratio = difflib.SequenceMatcher(None, normalized_query, normalized_file).ratio()
-        contains_bonus = 0.45 if normalized_query in normalized_file else 0
-        score = max(overlap, ratio) + contains_bonus
+        name_contains_bonus = 0.45 if normalized_query in normalized_file else 0
+        term_contains_bonus = 0.12 if any(term in normalized_file for term in query_terms) else 0
+        score = max(name_overlap + name_contains_bonus + term_contains_bonus, ratio * 0.85)
         scored.append((score, file_path))
 
     best_score, best_path = max(scored, key=lambda item: item[0])
     return best_path if best_score >= 0.32 else None
 
 
+def file_search_text(query: str, candidates: list[str]) -> str:
+    without_code = re.sub(r"```.*?```", " ", query, flags=re.DOTALL)
+    lines = [line.strip() for line in without_code.splitlines() if line.strip()]
+    natural_text = " ".join(lines[:8])[:900]
+    if candidates:
+        return " ".join([*candidates, natural_text])
+    return natural_text
+
+
+STOPWORDS = {
+    "a",
+    "ao",
+    "aos",
+    "algum",
+    "alguma",
+    "as",
+    "arquivo",
+    "arquivos",
+    "com",
+    "como",
+    "conteudo",
+    "da",
+    "das",
+    "de",
+    "do",
+    "dos",
+    "e",
+    "em",
+    "essa",
+    "esse",
+    "esta",
+    "este",
+    "file",
+    "ler",
+    "leia",
+    "nome",
+    "o",
+    "os",
+    "para",
+    "por",
+    "que",
+    "read",
+    "relacionada",
+    "relacionado",
+    "sobre",
+    "the",
+    "um",
+    "uma",
+}
+
+
+def meaningful_match_terms(normalized_value: str) -> set[str]:
+    return {term for term in normalized_value.split() if len(term) >= 3 and term not in STOPWORDS}
+
+
 def explicit_file_candidates(content: str) -> list[str]:
     candidates: list[str] = []
-    candidates.extend(match.strip() for match in re.findall(r'["`“”]([^"`“”]+?\.[A-Za-z0-9]{1,8})["`“”]', content))
+    candidates.extend(match.strip() for match in re.findall(r'["`]([^"`]+?\.[A-Za-z0-9]{1,8})["`]', content))
     candidates.extend(match.strip() for match in re.findall(r"([\w .\-/\\]+?\.[A-Za-z0-9]{1,8})", content))
     candidates.extend(
         match.strip()
@@ -637,9 +580,35 @@ def default_image_path() -> str:
     return f"agentflow-image-{stamp}.png"
 
 
-def default_text_path() -> str:
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    return f"agentflow-output-{stamp}.txt"
+def default_text_path(content: str, payload: dict[str, Any], context: dict[str, Any]) -> str:
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
+    seed_parts = [
+        optional_string(payload, "filename"),
+        optional_string(payload, "name"),
+        optional_string(payload, "title"),
+        optional_string(payload, "topic"),
+        optional_string(payload, "content"),
+        content,
+        str(context.get("initialInput") or ""),
+        " ".join(str(value) for value in context.get("previousOutputs", {}).values()),
+    ]
+    slug = contextual_slug(" ".join(part for part in seed_parts if part))
+    return f"{slug}-{stamp}.txt"
+
+
+def contextual_slug(value: str) -> str:
+    without_code = re.sub(r"```.*?```", " ", value, flags=re.DOTALL)
+    normalized = normalize_for_match(without_code)
+    terms = [term for term in normalized.split() if len(term) >= 3 and term not in STOPWORDS]
+    if not terms:
+        return "agentflow-output"
+    unique_terms: list[str] = []
+    for term in terms:
+        if term not in unique_terms:
+            unique_terms.append(term)
+        if len(unique_terms) >= 7:
+            break
+    return "-".join(unique_terms) or "agentflow-output"
 
 
 def image_prompt(payload: dict[str, Any], content: str) -> str:
@@ -652,45 +621,3 @@ def image_prompt(payload: dict[str, Any], content: str) -> str:
         return matches[-1].strip()
 
     return content.strip()
-
-
-def extract_google_image(result: dict[str, Any]) -> tuple[bytes | None, str, list[str]]:
-    imagen_image = extract_imagen_image(result)
-    if imagen_image[0] is not None:
-        return imagen_image
-
-    text_parts: list[str] = []
-    for candidate in result.get("candidates", []):
-        content = candidate.get("content", {}) if isinstance(candidate, dict) else {}
-        for part in content.get("parts", []):
-            if not isinstance(part, dict):
-                continue
-            if isinstance(part.get("text"), str):
-                text_parts.append(part["text"])
-            inline_data = part.get("inlineData") or part.get("inline_data")
-            if isinstance(inline_data, dict) and isinstance(inline_data.get("data"), str):
-                mime_type = str(inline_data.get("mimeType") or inline_data.get("mime_type") or "image/png")
-                return base64.b64decode(inline_data["data"]), mime_type, text_parts
-    return None, "image/png", text_parts
-
-
-def extract_imagen_image(result: dict[str, Any]) -> tuple[bytes | None, str, list[str]]:
-    predictions = result.get("predictions")
-    if not isinstance(predictions, list):
-        return None, "image/png", []
-
-    text_parts: list[str] = []
-    for prediction in predictions:
-        if not isinstance(prediction, dict):
-            continue
-        if isinstance(prediction.get("prompt"), str):
-            text_parts.append(prediction["prompt"])
-
-        image_payload = prediction.get("image") if isinstance(prediction.get("image"), dict) else prediction
-        for key in ("bytesBase64Encoded", "imageBytes", "bytes_base64_encoded"):
-            value = image_payload.get(key) if isinstance(image_payload, dict) else None
-            if isinstance(value, str):
-                mime_type = str(image_payload.get("mimeType") or image_payload.get("mime_type") or "image/png")
-                return base64.b64decode(value), mime_type, text_parts
-
-    return None, "image/png", text_parts

@@ -1,10 +1,16 @@
 from uuid import uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def disable_real_groq(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GROQ_API_KEY", "replace-me")
 
 
 def test_health() -> None:
@@ -71,7 +77,8 @@ def test_run_orchestration_mock() -> None:
     assert response.status_code == 200
     assert body["executionId"] == execution_id
     assert body["status"] == "COMPLETED"
-    assert body["finalOutput"].startswith("[Writer]")
+    assert body["finalOutput"].startswith("Execucao concluida")
+    assert "[Writer]" in body["finalOutput"]
     assert len(body["steps"]) == 1
     assert body["steps"][0]["nodeId"] == node_id
     assert body["steps"][0]["toolCalls"][0]["toolName"] == "word_count"
@@ -124,6 +131,8 @@ def test_tool_failure_marks_step_as_failed(tmp_path, monkeypatch) -> None:
 
     assert response.status_code == 200
     assert body["status"] == "COMPLETED"
+    assert body["finalOutput"].startswith("Execucao parcial")
+    assert "Reader" in body["finalOutput"]
     assert body["steps"][0]["status"] == "FAILED"
     assert body["steps"][0]["toolCalls"][0]["toolName"] == "file_read"
     assert body["steps"][0]["errorMessage"]

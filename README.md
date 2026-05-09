@@ -22,6 +22,10 @@ The initial V1 scope from stages 0 through 12 is implemented:
 - Dedicated project and agent management with create, edit, delete and inspection views
 - Dedicated visual Studio for graph modeling and dedicated Playground for execution tests
 
+## Agent Models
+
+The agent form uses a controlled Groq model selector instead of free text. The default model is `meta-llama/llama-4-scout-17b-16e-instruct`, and the selector includes the Groq chat-completion models currently tracked for this project.
+
 ## Controlled Agent Tools
 
 Agents can only run tools explicitly enabled in `allowedTools`.
@@ -35,7 +39,7 @@ Available tools:
 - `web_search`
 - `image_generate`
 
-File tools are scoped to `AGENTFLOW_TOOL_WORKDIR`. In Docker, this is mounted from `AGENTFLOW_HOST_TOOL_WORKDIR`; locally this can point to your Desktop. `file_write` defaults to a timestamped file in that workspace when no path is provided. `file_read` reads from that workspace and, when no exact path is provided, searches for an explicitly mentioned or similar file name; if no good match exists, the tool call fails clearly.
+File tools are scoped to `AGENTFLOW_TOOL_WORKDIR`. In Docker, this is mounted from `AGENTFLOW_HOST_TOOL_WORKDIR`; locally this can point to your Desktop. `file_write` creates a context-aware timestamped filename when no path is provided. `file_read` reads from that workspace and, when no exact path is provided, chooses from listed files by explicit filename or similar filename only; if no good name match exists, the tool call fails clearly.
 
 Structured tool input can be sent as JSON in the pipeline input or previous agent output:
 
@@ -60,9 +64,11 @@ Structured tool input can be sent as JSON in the pipeline input or previous agen
 }
 ```
 
-`file_write` also accepts `contentBase64` for binary files. `web_search` uses resilient fallbacks across DuckDuckGo instant answer, DuckDuckGo HTML results and Wikipedia OpenSearch. `image_generate` uses Google AI image models only when `GEMINI_API_KEY` is configured and the Google AI project has image-generation quota; otherwise the tool call is recorded as failed instead of breaking the whole app. It discovers available Google image models when `GEMINI_IMAGE_DISCOVERY_ENABLED=true`, tries Gemini/Nano Banana models first through `:generateContent`, and then tries Imagen models through `:predict`.
+`file_write` also accepts `contentBase64` for binary files. `web_search` uses resilient fallbacks across DuckDuckGo instant answer, DuckDuckGo HTML results and Wikipedia OpenSearch. `image_generate` uses Hugging Face Inference Providers when `HF_TOKEN` is configured. The default provider is `wavespeed`, and the default model is `black-forest-labs/FLUX.1-dev`.
 
-When no structured JSON is provided, `file_write` saves the received text to a timestamped `.txt` file in the tool workspace, and `image_generate` uses the received text as the prompt. Generated files include a local `publicUrl` so the Playground can preview images from tool calls.
+When no structured JSON is provided, `file_write` saves the received text to a contextual `.txt` file in the tool workspace, and `image_generate` uses the received text as the prompt. Generated files include a local `publicUrl` so the Playground can preview images from tool calls.
+
+Pipeline executions finish with a hidden summary pass. It uses Groq when `GROQ_API_KEY` is configured and otherwise falls back to a deterministic summary, so `finalOutput` describes what ran, what failed and what useful result was produced instead of concatenating raw terminal step outputs.
 
 ## Local Development
 

@@ -57,6 +57,7 @@ class AgentServiceTest {
         assertThat(response.systemPrompt()).isEqualTo("Prompt");
         assertThat(response.agentType()).isEqualTo(AgentType.GENERAL);
         assertThat(response.modelProvider()).isEqualTo("groq");
+        assertThat(response.modelName()).isEqualTo("meta-llama/llama-4-scout-17b-16e-instruct");
         assertThat(response.temperature()).isEqualByComparingTo(BigDecimal.valueOf(0.70));
         assertThat(response.allowedTools()).containsExactlyInAnyOrder("search", "docs");
     }

@@ -11,13 +11,32 @@ export const AGENT_TYPES: AgentType[] = [
   'CRITIC',
 ];
 
+export const GROQ_MODELS = [
+  { id: 'allam-2-7b', label: 'allam-2-7b' },
+  { id: 'groq/compound', label: 'groq/compound' },
+  { id: 'groq/compound-mini', label: 'groq/compound-mini' },
+  { id: 'llama-3.1-8b-instant', label: 'llama-3.1-8b-instant' },
+  { id: 'llama-3.3-70b-versatile', label: 'llama-3.3-70b-versatile' },
+  { id: 'meta-llama/llama-4-scout-17b-16e-instruct', label: 'meta-llama/llama-4-scout-17b-16e-instruct' },
+  { id: 'meta-llama/llama-prompt-guard-2-22m', label: 'meta-llama/llama-prompt-guard-2-22m' },
+  { id: 'meta-llama/llama-prompt-guard-2-86m', label: 'meta-llama/llama-prompt-guard-2-86m' },
+  { id: 'openai/gpt-oss-120b', label: 'openai/gpt-oss-120b' },
+  { id: 'openai/gpt-oss-20b', label: 'openai/gpt-oss-20b' },
+  { id: 'openai/gpt-oss-safeguard-20b', label: 'openai/gpt-oss-safeguard-20b' },
+  { id: 'qwen/qwen3-32b', label: 'qwen/qwen3-32b' },
+] as const;
+
+export type GroqModelId = (typeof GROQ_MODELS)[number]['id'];
+
+export const DEFAULT_GROQ_MODEL: GroqModelId = 'meta-llama/llama-4-scout-17b-16e-instruct';
+
 export const DEFAULT_AGENT: AgentPayload = {
   name: '',
   description: '',
   systemPrompt: '',
   agentType: 'GENERAL',
   modelProvider: 'groq',
-  modelName: 'meta-llama/llama-4-scout-17b-16e-instruct',
+  modelName: DEFAULT_GROQ_MODEL,
   temperature: 0.7,
   allowedTools: [],
 };

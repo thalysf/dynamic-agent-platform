@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 
 import { Agent, AgentPayload, Project, createAgent, deleteAgent, updateAgent } from '../api/client';
-import { AGENT_TYPES, AVAILABLE_TOOLS, DEFAULT_AGENT } from '../constants/agents';
+import { AGENT_TYPES, AVAILABLE_TOOLS, DEFAULT_AGENT, GROQ_MODELS, GroqModelId } from '../constants/agents';
 
 type AgentsPageProps = {
   selectedProject: Project | null;
@@ -84,6 +84,8 @@ function AgentsPage({
       };
     });
   }
+
+  const draftModelIsListed = GROQ_MODELS.some((model) => model.id === draft.modelName);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -194,12 +196,21 @@ function AgentsPage({
           </div>
           <label className="block">
             <span className="text-sm font-medium text-slate-700">Modelo</span>
-            <input
+            <select
               className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"
               required
               value={draft.modelName}
-              onChange={(event) => setDraft((current) => ({ ...current, modelName: event.target.value }))}
-            />
+              onChange={(event) => setDraft((current) => ({ ...current, modelName: event.target.value as GroqModelId }))}
+            >
+              {!draftModelIsListed && draft.modelName ? (
+                <option value={draft.modelName}>{draft.modelName} (modelo salvo fora da lista)</option>
+              ) : null}
+              {GROQ_MODELS.map((model) => (
+                <option key={model.id} value={model.id}>
+                  {model.label}
+                </option>
+              ))}
+            </select>
           </label>
           <label className="block">
             <span className="text-sm font-medium text-slate-700">System prompt</span>

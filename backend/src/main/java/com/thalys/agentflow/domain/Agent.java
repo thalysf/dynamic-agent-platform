@@ -23,6 +23,9 @@ import jakarta.persistence.Table;
 @Table(name = "agents")
 public class Agent {
 
+    private static final String DEFAULT_MODEL_PROVIDER = "groq";
+    private static final String DEFAULT_MODEL_NAME = "meta-llama/llama-4-scout-17b-16e-instruct";
+
     @Id
     @Column(nullable = false, updatable = false)
     private UUID id = UUID.randomUUID();
@@ -45,10 +48,10 @@ public class Agent {
     private AgentType agentType = AgentType.GENERAL;
 
     @Column(name = "model_provider", nullable = false, length = 40)
-    private String modelProvider = "groq";
+    private String modelProvider = DEFAULT_MODEL_PROVIDER;
 
     @Column(name = "model_name", nullable = false, length = 120)
-    private String modelName = "llama-3.1-70b-versatile";
+    private String modelName = DEFAULT_MODEL_NAME;
 
     @Column(nullable = false, precision = 3, scale = 2)
     private BigDecimal temperature = BigDecimal.valueOf(0.70);
@@ -79,8 +82,8 @@ public class Agent {
         this.description = description;
         this.systemPrompt = systemPrompt;
         this.agentType = agentType == null ? AgentType.GENERAL : agentType;
-        this.modelProvider = isBlank(modelProvider) ? "groq" : modelProvider;
-        this.modelName = isBlank(modelName) ? "llama-3.1-70b-versatile" : modelName;
+        this.modelProvider = isBlank(modelProvider) ? DEFAULT_MODEL_PROVIDER : modelProvider;
+        this.modelName = isBlank(modelName) ? DEFAULT_MODEL_NAME : modelName;
         this.temperature = temperature == null ? BigDecimal.valueOf(0.70) : temperature;
         this.allowedTools.clear();
         if (allowedTools != null) {

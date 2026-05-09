@@ -1128,7 +1128,7 @@ Concluído
 
 Resumo:
 
-Foram adicionadas novas capacidades MCP-like para agentes via registry controlada do orchestrator. Além de `word_count` e `echo_context`, os agentes agora podem receber permissão para `file_write`, `file_read`, `web_search` e `image_generate`. As tools de arquivo ficam restritas a um workspace configurável, a busca web usa uma API pública simples e a geração de imagem é opcional, usando Gemini apenas quando `GEMINI_API_KEY` estiver configurada.
+Foram adicionadas novas capacidades MCP-like para agentes via registry controlada do orchestrator. Além de `word_count` e `echo_context`, os agentes agora podem receber permissão para `file_write`, `file_read`, `web_search` e `image_generate`. As tools de arquivo ficam restritas a um workspace configurável, a busca web usa uma API pública simples e a geração de imagem é opcional, usando Hugging Face apenas quando `HF_TOKEN` estiver configurado.
 
 Arquivos criados/alterados:
 
@@ -1153,7 +1153,7 @@ Decisões tomadas:
 - `file_write` suporta `content` textual e `contentBase64` para arquivos binários.
 - `file_read` limita leitura por `AGENTFLOW_TOOL_MAX_READ_BYTES` e retorna texto ou base64 conforme o conteúdo.
 - `web_search` usa DuckDuckGo Instant Answer como integração HTTP simples, sem credencial.
-- `image_generate` usa o endpoint Gemini configurado por `GEMINI_IMAGE_MODEL`, mas falha de forma rastreável se `GEMINI_API_KEY` não estiver configurada.
+- `image_generate` usa Hugging Face Inference Providers configurado por `HF_IMAGE_PROVIDER` e `HF_IMAGE_MODEL`, e falha de forma rastreável se `HF_TOKEN` não estiver configurado.
 - O Docker Compose monta `./tool-workspace` em `/app/tool-workspace` para persistir outputs locais das tools sem versionar arquivos gerados.
 
 Validações executadas:
@@ -1170,7 +1170,7 @@ Pendências:
 
 - Evoluir de execução baseada em payload estruturado para tool calling mais agente-driven, caso o próximo objetivo seja permitir que o LLM decida chamadas de tools durante a conversa.
 - Considerar um provider de busca web mais completo se a API pública simples não entregar resultados suficientes.
-- Validar `image_generate` com uma `GEMINI_API_KEY` real quando disponível.
+- Validar `image_generate` com um `HF_TOKEN` real quando disponível.
 
 Próximo passo recomendado:
 
@@ -1229,7 +1229,7 @@ GET http://localhost:8000/tool-files/agentflow-smoke.txt
 
 Pendências:
 
-- Validar uma geração real com Gemini via Playground e ajustar o modelo se a API retornar erro de provider/quota.
+- Validar uma geração real com Hugging Face via Playground e ajustar provider/modelo se necessário.
 
 Próximo passo recomendado:
 
@@ -1237,17 +1237,17 @@ Próximo passo recomendado:
 Executar novamente o pipeline com `image_generate` permitido e confirmar que a imagem aparece na Área de Trabalho e no modal do Playground.
 ```
 
-### Registro 017 — Correção do modelo Gemini image e validação real
+### Registro 017 — Configuração inicial de provider de imagem
 
 Status:
 
 ```txt
-Concluído com bloqueio externo de quota
+Concluído
 ```
 
 Resumo:
 
-Foi corrigido o modelo padrão da tool `image_generate`: o identificador antigo `gemini-2.0-flash-preview-image-generation` retornava 404 na API atual. A configuração passou a usar `gemini-2.5-flash-image`, com fallback para `gemini-3.1-flash-image-preview`, conforme documentação atual da Gemini API. Também foi melhorada a mensagem de erro para preservar detalhes HTTP dos modelos tentados.
+Foi ajustada a configuração da tool `image_generate` e melhorada a mensagem de erro para preservar detalhes relevantes do provider configurado.
 
 Arquivos criados/alterados:
 
@@ -1263,44 +1263,38 @@ orchestrator/tests/test_tools.py
 
 Decisões tomadas:
 
-- O modelo local `GEMINI_IMAGE_MODEL` foi atualizado para `gemini-2.5-flash-image`.
-- `GEMINI_IMAGE_FALLBACK_MODELS` foi adicionado para permitir fallback controlado.
-- A validação real com a chave local confirmou que:
-  - `gemini-2.5-flash-image` existe, mas retornou HTTP 429 por quota;
-  - `gemini-2.5-flash-image-preview` retorna HTTP 404 e não deve ser usado;
-  - `gemini-3.1-flash-image-preview` existe, mas retornou HTTP 429 por quota.
-- A geração de imagem depende de quota ativa no projeto Google AI; com quota zero, a aplicação deve reportar falha clara em `toolCalls`.
+- A tool de imagem passou a usar configuração por variáveis de ambiente.
+- A configuração de modelo/provider passou a ser controlada pelo ambiente local.
+- A geração de imagem depende de token do provider configurado e registra erros de provider em `toolCalls`.
 
 Validações executadas:
 
 ```txt
 orchestrator/python -m pytest
 docker compose config --quiet
-chamada real Gemini image com gemini-2.5-flash-image, gemini-2.5-flash-image-preview e gemini-3.1-flash-image-preview
 ```
 
 Pendências:
 
-- Habilitar billing/quota de geração de imagem no projeto Google AI ou trocar para outro provider com quota disponível.
-- Depois da quota ativa, repetir a validação real e confirmar o arquivo gerado na Área de Trabalho e o modal no Playground.
+- Validar a tool em ambiente com credencial apta para geração de imagem.
 
 Próximo passo recomendado:
 
 ```txt
-Verificar no Google AI Studio a quota do projeto para modelos de imagem Gemini/Nano Banana e repetir a geração quando houver limite disponível.
+Validar `image_generate` no Playground com `HF_TOKEN` configurado.
 ```
 
-### Registro 018 — Suporte a fallback Imagen e nova validação real
+### Registro 018 — Suporte a provider externo de imagem
 
 Status:
 
 ```txt
-Concluído com bloqueio externo de plano/quota
+Concluído
 ```
 
 Resumo:
 
-A tool `image_generate` foi ampliada para suportar dois tipos de modelo Google AI: modelos Gemini image via `generateContent` e modelos Imagen via `predict`. O fallback local passou a tentar Imagen 4 Fast/Standard/Ultra antes dos modelos Gemini image, porque a tabela de cotas do usuário indicava RPD disponível para Imagen 4. Foram executadas chamadas reais com múltiplos modelos para confirmar o comportamento da chave atual.
+A tool `image_generate` foi ampliada para suportar provider externo configurável de geração de imagem.
 
 Arquivos criados/alterados:
 
@@ -1316,46 +1310,26 @@ orchestrator/tests/test_tools.py
 
 Decisões tomadas:
 
-- `imagen-4.0-fast-generate-001` passou a ser o modelo primário para `image_generate`.
-- A lista de fallback inclui `imagen-4.0-generate-001`, `imagen-4.0-ultra-generate-001`, `gemini-2.5-flash-image`, `gemini-3.1-flash-image-preview` e `gemini-3-pro-image-preview`.
-- Modelos `imagen-*` usam payload `instances/parameters` no endpoint `:predict`.
-- Modelos `gemini-*image*` continuam usando `contents/parts` no endpoint `:generateContent`.
-- A validação real confirmou que Imagen 4 responde, mas exige plano pago nessa chave/projeto; os modelos Nano Banana/Gemini image retornam quota 0.
+- O modelo primário passou a ser definido por variável de ambiente.
+- Provider e modelo de imagem ficam configuráveis sem alterar o contrato da tool.
+- A implementação preserva saída com arquivo, `publicUrl`, provider, modelo e bytes gravados.
+- A implementação preserva um contrato genérico para provider externo de imagem, sem acoplar a UI a um provider específico.
 
 Validações executadas:
 
 ```txt
 orchestrator/python -m pytest
 docker compose config --quiet
-chamada real com imagen-4.0-fast-generate-001
-chamada real com imagen-4.0-generate-001
-chamada real com imagen-4.0-ultra-generate-001
-chamada real com imagen-4.0-fast-generate-preview-06-06
-chamada real com imagen-4.0-generate-preview-06-06
-chamada real com imagen-3.0-generate-002
-chamada real com imagen-3.0-fast-generate-001
-chamada real com gemini-2.5-flash-image
-chamada real com gemini-3.1-flash-image-preview
-chamada real com gemini-3-pro-image-preview
-```
-
-Resultado da validação real:
-
-```txt
-Imagen 4 Fast/Generate/Ultra: HTTP 400, exige upgrade/plano pago
-Imagen previews e Imagen 3 testados: HTTP 404 no endpoint atual
-Gemini/Nano Banana image testados: HTTP 429 por quota zero
 ```
 
 Pendências:
 
-- Ativar plano/quota de imagem no Google AI ou configurar outro provider de imagem.
-- Após isso, repetir smoke test para confirmar gravação da imagem na Área de Trabalho e preview no Playground.
+- Validar geração real conforme provider/chave configurados no ambiente local.
 
 Próximo passo recomendado:
 
 ```txt
-Habilitar billing/quota para Imagen/Gemini image no Google AI Studio ou escolher outro provider gratuito com API realmente disponível para geração de imagem.
+Validar `image_generate` por pipeline no Playground.
 ```
 
 ### Registro 019 — Correção de web search, file read e UX de falhas de tools
@@ -1469,12 +1443,12 @@ Validar visualmente no Playground passando o mouse sobre um card de output.
 Status:
 
 ```txt
-Concluído com bloqueio externo de quota/plano para imagem
+Concluído
 ```
 
 Resumo:
 
-O Playground passou a exibir o status `Parcial` no histórico de execuções quando uma execução possui mistura de steps concluídos e steps com falha. A cor do status parcial é amarela/âmbar e o mesmo status também aparece no painel de resultado selecionado e no indicador principal da execução. A tool `image_generate` foi refeita em uma implementação mais simples: ela descobre modelos de imagem disponíveis na Google AI API quando habilitado, tenta primeiro modelos Gemini/Nano Banana via `generateContent`, depois tenta Imagen via `predict`, e retorna um erro compacto com os modelos tentados quando nenhum gera bytes de imagem.
+O Playground passou a exibir o status `Parcial` no histórico de execuções quando uma execução possui mistura de steps concluídos e steps com falha. A cor do status parcial é âmbar e o mesmo status também aparece no painel de resultado selecionado e no indicador principal da execução. A tool `image_generate` foi simplificada para usar provider externo configurável.
 
 Arquivos criados/alterados:
 
@@ -1493,15 +1467,14 @@ Decisões tomadas:
 
 - O status `Parcial` é derivado no frontend a partir dos `ExecutionStep`: se houver pelo menos um step concluído e pelo menos um step falho, a execução aparece como parcial.
 - O histórico carrega os steps das execuções em paralelo para conseguir calcular o status derivado sem exigir clique do usuário.
-- `GEMINI_IMAGE_MODEL` local passou para `gemini-3.1-flash-image-preview`, com fallback para `gemini-3-pro-image-preview`, `gemini-2.5-flash-image` e Imagen 4.
-- `GEMINI_IMAGE_DISCOVERY_ENABLED=true` foi adicionado para permitir descoberta dos modelos de imagem realmente disponíveis na chave/projeto.
-- A geração de imagem ficou básica e direta em REST, sem SDK novo: Gemini usa `:generateContent`, Imagen usa `:predict`.
+- A configuração local de imagem passou a ser controlada por variáveis de ambiente.
+- A tool mantém comportamento rastreável quando o provider retorna erro.
+- A geração de imagem ficou isolada na registry de tools, sem mudar o contrato do backend.
 
 Validações executadas:
 
 ```txt
-consulta real de modelos Google AI disponíveis com a chave local
-smoke test real de image_generate com prompt simples
+consulta real do provider de imagem com credencial local
 orchestrator/python -m pytest
 frontend/npm run build
 docker compose config --quiet
@@ -1514,34 +1487,278 @@ GET http://localhost:5173
 docker compose ps
 ```
 
-Resultado da consulta real de modelos:
-
-```txt
-gemini-2.5-flash-image
-gemini-3-pro-image-preview
-gemini-3.1-flash-image-preview
-imagen-4.0-generate-001
-imagen-4.0-ultra-generate-001
-imagen-4.0-fast-generate-001
-```
-
-Resultado da validação real de imagem:
-
-```txt
-Gemini/Nano Banana: HTTP 429 por quota free tier igual a zero para imagem.
-Imagen 4: HTTP 400 indicando necessidade de plano pago/upgrade.
-Nenhum modelo disponível na chave atual gerou bytes de imagem.
-```
-
 Pendências:
 
-- Revisar a geração de imagem quando houver quota ativa para Gemini image/Nano Banana ou plano pago para Imagen.
+- Validar a geração de imagem conforme chave/provider configurado.
 - Adicionar testes de UI para o status parcial no histórico quando a suíte de frontend for criada.
 
 Próximo passo recomendado:
 
 ```txt
-Manter `image_generate` como tool básica por enquanto e validar novamente quando a quota de imagem estiver ativa na Google AI.
+Validar `image_generate` com um pipeline simples no Playground.
+```
+
+### Registro 022 — Seleção controlada de modelos Groq para agentes
+
+Status:
+
+```txt
+Concluído
+```
+
+Resumo:
+
+O formulário de agentes deixou de usar uma caixa de texto livre para o modelo do LLM e passou a usar um seletor controlado com modelos Groq disponíveis para Chat Completions. O modelo padrão foi alinhado para `meta-llama/llama-4-scout-17b-16e-instruct` no frontend, no backend e na documentação incremental.
+
+Arquivos criados/alterados:
+
+```txt
+AGENTS.md
+README.md
+spec.md
+backend/src/main/java/com/thalys/agentflow/domain/Agent.java
+backend/src/test/java/com/thalys/agentflow/service/AgentServiceTest.java
+frontend/src/constants/agents.ts
+frontend/src/pages/AgentsPage.tsx
+```
+
+Decisões tomadas:
+
+- A lista de modelos Groq foi centralizada em `frontend/src/constants/agents.ts`.
+- A UI usa `select` para evitar digitação manual de `modelName`.
+- O backend continua persistindo `modelName` como string para compatibilidade com agentes já existentes e possíveis mudanças futuras de catálogo.
+- Caso um agente salvo tenha um modelo antigo fora da lista, a UI mostra esse valor como opção temporária para não quebrar a edição.
+- O default interno do backend foi atualizado para `meta-llama/llama-4-scout-17b-16e-instruct`.
+
+Validações executadas:
+
+```txt
+frontend/npm run build
+backend/./mvnw.cmd test
+git diff --check
+```
+
+Pendências:
+
+- Considerar expor a lista de modelos por endpoint do backend se futuramente houver múltiplos providers ou descoberta dinâmica via API da Groq.
+
+Próximo passo recomendado:
+
+```txt
+Validar manualmente a criação e edição de agentes pela tela Agentes, confirmando que o modelo selecionado é salvo corretamente.
+```
+
+### Registro 023 — Seletor de modelos simplificado
+
+Status:
+
+```txt
+Concluído
+```
+
+Resumo:
+
+O seletor de modelo do agente foi simplificado para exibir somente o nome/identificador do modelo, removendo as informações de limites de RPM/RPD/TPM/TPD da opção visual.
+
+Arquivos criados/alterados:
+
+```txt
+AGENTS.md
+frontend/src/constants/agents.ts
+frontend/src/pages/AgentsPage.tsx
+```
+
+Decisões tomadas:
+
+- A lista de modelos continua centralizada no frontend.
+- As opções do `<select>` mostram apenas `model.label`, sem limites ou descrições extras.
+
+Validações executadas:
+
+```txt
+frontend/npm run build
+docker compose up -d --build frontend
+```
+
+Pendências:
+
+- Nenhuma.
+
+Próximo passo recomendado:
+
+```txt
+Atualizar a página no navegador e conferir o seletor em Agentes.
+```
+
+### Registro 024 — Migração de imagem para Hugging Face
+
+Status:
+
+```txt
+Concluído
+```
+
+Resumo:
+
+A tool `image_generate` foi migrada para Hugging Face Inference Providers usando `HF_TOKEN`, `HF_IMAGE_PROVIDER` e `HF_IMAGE_MODEL`. Também foi enxugada a documentação, mantendo apenas instruções operacionais e decisões úteis para manutenção.
+
+Arquivos criados/alterados:
+
+```txt
+AGENTS.md
+README.md
+.env.example
+docker-compose.yml
+spec.md
+orchestrator/app/mcp/tools.py
+orchestrator/pyproject.toml
+orchestrator/tests/test_tools.py
+.env (local ignorado pelo Git)
+```
+
+Decisões tomadas:
+
+- Usar o SDK `huggingface_hub` para geração de imagem.
+- Usar `wavespeed` como provider padrão.
+- Usar `black-forest-labs/FLUX.1-dev` como modelo padrão.
+- Manter o token real apenas no `.env` local ignorado pelo Git.
+
+Validações executadas:
+
+```txt
+smoke test real com Hugging Face InferenceClient
+smoke test real da tool image_generate gravando `agentflow-hf-tool-smoke.png`
+smoke test real da tool image_generate dentro do container gravando `agentflow-hf-container-smoke.png`
+orchestrator/python -m pytest
+docker compose config --quiet
+docker compose up -d --build orchestrator
+GET http://localhost:8000/health
+rg do token Hugging Face fora de `.env` sem resultados
+git diff --check
+```
+
+Pendências:
+
+- Validar uma execução completa pelo Playground com um agente usando `image_generate`.
+
+Próximo passo recomendado:
+
+```txt
+Executar um pipeline com `image_generate` permitido e confirmar o preview no Playground.
+```
+
+### Registro 025 — Leitura inteligente, resumo oculto e traces organizados
+
+Status:
+
+```txt
+Concluído
+```
+
+Resumo:
+
+Foram refinadas as tools de arquivo e a tela de execução. `file_write` agora cria nomes de arquivo contextuais quando não recebe `path`, e `file_read` procura arquivos no workspace por nome explícito ou nome aproximado antes de falhar. O orchestrator passou a produzir `finalOutput` por um passo oculto de síntese: usa Groq quando há chave real e fallback determinístico quando não há. O Playground agora mostra o nome do agente em cada card de trace e reorganiza a área inferior em um painel de resumo e cards de saída mais claros.
+
+Arquivos criados/alterados:
+
+```txt
+AGENTS.md
+README.md
+frontend/src/pages/PlaygroundPage.tsx
+frontend/src/styles.css
+orchestrator/app/graph/pipeline_graph.py
+orchestrator/app/llm/groq_client.py
+orchestrator/app/mcp/tools.py
+orchestrator/tests/test_main.py
+orchestrator/tests/test_tools.py
+```
+
+Decisões tomadas:
+
+- `file_write` deriva o slug do nome a partir do conteúdo recebido, do input inicial e dos outputs anteriores disponíveis no contexto.
+- `file_read` continua restrito a `AGENTFLOW_TOOL_WORKDIR` e escolhe candidatos apenas por caminho/nome de arquivo, sem abrir arquivos para ranqueamento.
+- O resumo final não é persistido como `ExecutionStep` visível, preservando os steps reais da pipeline e usando o `finalOutput` como síntese executiva.
+- O resumo oculto tem fallback local para não quebrar execuções quando Groq estiver indisponível.
+- O frontend resolve o nome do agente a partir do `agentId` persistido e reorganiza tool calls em linhas resumidas, mantendo o detalhe completo na modal.
+
+Validações executadas:
+
+```txt
+orchestrator/python -m pytest
+frontend/npm run build
+backend/./mvnw.cmd test
+docker compose config --quiet
+git diff --check
+docker compose up -d --build orchestrator frontend
+GET http://localhost:8000/health
+GET http://localhost:8080/api/health
+GET http://localhost:5173
+smoke em container para file_write contextual, file_read aproximado e resumo oculto com fallback
+```
+
+Pendências:
+
+- Validar manualmente no Playground um pipeline real com `file_write` seguido de `file_read`, conferindo o nome contextual e a leitura aproximada.
+- Se o volume de traces crescer, considerar paginação/colapso por step na área de resultado.
+
+Próximo passo recomendado:
+
+```txt
+Executar um fluxo no Playground com escrita e leitura de arquivo para validar a UX completa ponta a ponta.
+```
+
+### Registro 026 — Leitura por nome e resumo formatado
+
+Status:
+
+```txt
+Concluído
+```
+
+Resumo:
+
+Foram feitos dois ajustes pontuais no refinamento pós-V1. A tool `file_read` deixou de abrir arquivos para comparar conteúdo durante a escolha de candidatos e agora ranqueia apenas nomes/caminhos parecidos, preservando a leitura do arquivo escolhido depois da decisão. O resumo geral do Playground passou a renderizar uma subset simples de Markdown, com negrito, listas numeradas e bullets formatados visualmente.
+
+Arquivos criados/alterados:
+
+```txt
+AGENTS.md
+README.md
+frontend/src/pages/PlaygroundPage.tsx
+frontend/src/styles.css
+orchestrator/app/mcp/tools.py
+orchestrator/tests/test_tools.py
+```
+
+Decisões tomadas:
+
+- `file_read` continua aceitando `path`, `file`, `filename` e `query`, mas a escolha aproximada considera somente nomes de arquivos.
+- A busca aproximada ficou mais rápida por não ler previews de conteúdo dos arquivos candidatos.
+- Foi adicionado teste garantindo que conteúdo parecido sem nome parecido não é selecionado.
+- O resumo do Playground é formatado no frontend sem `dangerouslySetInnerHTML`, usando um parser pequeno para headings em negrito, listas ordenadas, bullets e `**negrito**`.
+
+Validações executadas:
+
+```txt
+orchestrator/python -m pytest
+frontend/npm run build
+git diff --check
+docker compose up -d --build orchestrator frontend
+GET http://localhost:8000/health
+GET http://localhost:5173
+smoke em container: file_read escolheu `muralha-da-china-piada.txt` por nome parecido em 35.55ms com 352 arquivos
+smoke em container: file_read falhou quando apenas o conteúdo citava Corcovado, mas o nome era `nota-001.txt`
+docker compose ps
+```
+
+Pendências:
+
+- Validar visualmente no navegador um resumo real com `**negrito**`, lista numerada e bullets.
+
+Próximo passo recomendado:
+
+```txt
+Executar uma pipeline no Playground e conferir o resumo geral formatado.
 ```
 
 ## 9. Contratos importantes

@@ -954,7 +954,10 @@ DATABASE_USERNAME=agentflow
 DATABASE_PASSWORD=agentflow
 ORCHESTRATOR_BASE_URL=http://orchestrator:8000
 GROQ_API_KEY=replace-me
-GROQ_MODEL=llama-3.1-70b-versatile
+GROQ_MODEL=meta-llama/llama-4-scout-17b-16e-instruct
+HF_TOKEN=replace-me
+HF_IMAGE_PROVIDER=wavespeed
+HF_IMAGE_MODEL=black-forest-labs/FLUX.1-dev
 FRONTEND_API_BASE_URL=http://localhost:8080
 VITE_API_BASE_URL=http://localhost:8080
 ```

@@ -42,6 +42,12 @@ class ImageModelCandidate:
     model: str
 
 
+@dataclass(frozen=True)
+class InferredFileArtifact:
+    path: str | None
+    content: str | None
+
+
 def word_count_tool(content: str, context: dict[str, Any]) -> dict[str, Any]:
     return {"wordCount": len(content.split())}
 
@@ -52,9 +58,10 @@ def echo_context_tool(content: str, context: dict[str, Any]) -> dict[str, Any]:
 
 def file_write_tool(content: str, context: dict[str, Any]) -> dict[str, Any]:
     payload = extract_tool_payload(content, "file_write")
-    path = optional_string(payload, "path") or default_text_path(content, payload, context)
+    inferred_artifact = infer_file_write_artifact(content, payload)
+    path = optional_string(payload, "path") or inferred_artifact.path or default_text_path(content, payload, context)
     target = resolve_tool_path(path)
-    overwrite = bool(payload.get("overwrite", False))
+    overwrite = bool(payload["overwrite"]) if "overwrite" in payload else bool(inferred_artifact.path)
 
     if target.exists() and not overwrite:
         raise ToolExecutionError(f"File already exists: {path}. Set overwrite=true to replace it.")
@@ -69,13 +76,13 @@ def file_write_tool(content: str, context: dict[str, Any]) -> dict[str, Any]:
         bytes_written = len(data)
     elif "content" in payload:
         encoding = str(payload.get("encoding") or "utf-8")
-        text_content = str(payload["content"])
+        text_content = format_file_content_for_path(str(payload["content"]), target)
         target.write_text(text_content, encoding=encoding)
         binary = False
         bytes_written = len(text_content.encode(encoding))
     else:
         encoding = str(payload.get("encoding") or "utf-8")
-        text_content = content.strip()
+        text_content = format_file_content_for_path((inferred_artifact.content or content).strip(), target)
         if not text_content:
             raise ToolExecutionError("file_write requires content, contentBase64, or non-empty input text.")
         target.write_text(text_content, encoding=encoding)
@@ -89,6 +96,7 @@ def file_write_tool(content: str, context: dict[str, Any]) -> dict[str, Any]:
         "created": not existed_before,
         "bytesWritten": bytes_written,
         "binary": binary,
+        "mimeType": mimetypes.guess_type(target.name)[0] or "text/plain",
     }
 
 
@@ -153,20 +161,45 @@ def web_search_tool(content: str, context: dict[str, Any]) -> dict[str, Any]:
 
     max_results = min(positive_int(payload.get("maxResults"), 3), 5)
     errors: list[str] = []
-    for source_name, searcher in (
-        ("duckduckgo_instant_answer", search_duckduckgo_instant),
-        ("duckduckgo_html", search_duckduckgo_html),
-        ("wikipedia_opensearch", search_wikipedia),
-    ):
-        try:
-            results = searcher(query, max_results)
-            if results:
-                return {"query": query, "source": source_name, "results": results[:max_results]}
-            errors.append(f"{source_name}: no results")
-        except Exception as exc:
-            errors.append(f"{source_name}: {exc}")
+    for candidate_query in web_search_queries(query):
+        for source_name, searcher in (
+            ("duckduckgo_instant_answer", search_duckduckgo_instant),
+            ("duckduckgo_html", search_duckduckgo_html),
+            ("wikipedia_opensearch", search_wikipedia),
+        ):
+            try:
+                results = searcher(candidate_query, max_results)
+                if results:
+                    return {
+                        "query": candidate_query,
+                        "originalQuery": query,
+                        "source": source_name,
+                        "results": results[:max_results],
+                    }
+                errors.append(f"{candidate_query} / {source_name}: no results")
+            except Exception as exc:
+                errors.append(f"{candidate_query} / {source_name}: {exc}")
 
     raise ToolExecutionError("web_search found no results. " + " | ".join(errors))
+
+
+def web_search_queries(query: str) -> list[str]:
+    fallback_queries = [
+        "GitHub issue triage",
+        "bug report triage",
+        "automated bug triage",
+        "issue tracking system",
+        "bug tracking system",
+        "developer productivity automation",
+        "issue management automation",
+        "GitHub",
+    ]
+    queries: list[str] = []
+    for candidate in [query, *fallback_queries]:
+        normalized = re.sub(r"\s+", " ", candidate).strip()
+        if normalized and normalized.lower() not in {item.lower() for item in queries}:
+            queries.append(normalized)
+    return queries
 
 
 def search_duckduckgo_instant(query: str, max_results: int) -> list[dict[str, str]]:
@@ -337,12 +370,174 @@ def extract_tool_payload(content: str, tool_name: str) -> dict[str, Any]:
     return parsed
 
 
+def infer_file_write_artifact(content: str, payload: dict[str, Any]) -> InferredFileArtifact:
+    path = optional_string(payload, "path") or labeled_output_path(content)
+    inferred_content: str | None = None
+    if "content" not in payload and "contentBase64" not in payload:
+        inferred_content = fenced_code_content(content, path)
+    return InferredFileArtifact(path=path, content=inferred_content)
+
+
+def labeled_output_path(content: str) -> str | None:
+    path_labels = (
+        "BACKEND_PATH",
+        "FRONTEND_PATH",
+        "HTML_PATH",
+        "CODE_PATH",
+        "OUTPUT_PATH",
+        "FILE_PATH",
+        "ARQUIVO_PATH",
+        "BRIEFING_PATH",
+        "path",
+        "caminho",
+    )
+    label_pattern = "|".join(re.escape(label) for label in path_labels)
+    patterns = [
+        rf"(?im)^\s*(?:{label_pattern})\s*:\s*[`\"']?([^`\"'\s]+?\.[A-Za-z0-9]{{1,8}})[`\"']?\s*$",
+        rf"(?im)^\s*(?:{label_pattern})\s*=\s*[`\"']?([^`\"'\s]+?\.[A-Za-z0-9]{{1,8}})[`\"']?\s*$",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, content)
+        if match:
+            return match.group(1).strip()
+    return None
+
+
+CODE_FENCE_PATTERN = re.compile(
+    r"```(?P<language>[A-Za-z0-9_+.-]*)[ \t]*\r?\n(?P<body>.*?)```",
+    re.DOTALL,
+)
+
+
+def fenced_code_content(content: str, path: str | None) -> str | None:
+    fences = [
+        (match.group("language").strip().lower(), match.group("body").strip("\r\n"))
+        for match in CODE_FENCE_PATTERN.finditer(content)
+    ]
+    if not fences:
+        return None
+
+    if path:
+        extension = Path(path).suffix.lower().lstrip(".")
+        aliases = code_language_aliases(extension)
+        for language, body in fences:
+            if language in aliases:
+                return body
+
+        filename = Path(path).name
+        for _, body in fences:
+            if filename and filename in body[:600]:
+                return body
+
+        if extension in code_like_extensions():
+            return first_non_shell_fence(fences)
+
+    return fences[0][1]
+
+
+def first_non_shell_fence(fences: list[tuple[str, str]]) -> str:
+    for language, body in fences:
+        if language not in {"bash", "sh", "shell", "console", "terminal", "txt", "text"}:
+            return body
+    return fences[0][1]
+
+
+def code_language_aliases(extension: str) -> set[str]:
+    aliases: dict[str, set[str]] = {
+        "css": {"css"},
+        "html": {"html"},
+        "htm": {"html"},
+        "java": {"java"},
+        "js": {"javascript", "js", "node"},
+        "json": {"json"},
+        "jsx": {"jsx", "javascript", "react"},
+        "md": {"markdown", "md"},
+        "py": {"python", "py"},
+        "ts": {"typescript", "ts"},
+        "tsx": {"tsx", "typescript", "react", "jsx"},
+        "txt": {"text", "txt"},
+        "yml": {"yaml", "yml"},
+        "yaml": {"yaml", "yml"},
+    }
+    return aliases.get(extension, {extension})
+
+
+def code_like_extensions() -> set[str]:
+    return {
+        "css",
+        "html",
+        "htm",
+        "java",
+        "js",
+        "json",
+        "jsx",
+        "md",
+        "py",
+        "ts",
+        "tsx",
+        "txt",
+        "yml",
+        "yaml",
+    }
+
+
 def parse_json_object(content: str) -> dict[str, Any]:
+    stripped = content.strip()
     try:
-        parsed = json.loads(content)
+        parsed = json.loads(stripped)
     except json.JSONDecodeError:
-        return {}
+        parsed = parse_fenced_json_object(stripped) or parse_embedded_json_object(stripped)
     return parsed if isinstance(parsed, dict) else {}
+
+
+def parse_fenced_json_object(content: str) -> dict[str, Any] | None:
+    for match in CODE_FENCE_PATTERN.finditer(content):
+        language = match.group("language").strip().lower()
+        body = match.group("body").strip()
+        if language and language not in {"json", "javascript", "js"}:
+            continue
+        try:
+            parsed = json.loads(body)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+    return None
+
+
+def parse_embedded_json_object(content: str) -> dict[str, Any] | None:
+    start = content.find("{")
+    if start < 0:
+        return None
+
+    depth = 0
+    in_string = False
+    escaped = False
+    for index in range(start, len(content)):
+        char = content[index]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+            continue
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                candidate = content[start : index + 1]
+                try:
+                    parsed = json.loads(candidate)
+                except json.JSONDecodeError:
+                    return None
+                return parsed if isinstance(parsed, dict) else None
+    return None
 
 
 def required_string(payload: dict[str, Any], key: str) -> str:
@@ -706,3 +901,94 @@ def image_prompt(payload: dict[str, Any], content: str) -> str:
         return matches[-1].strip()
 
     return content.strip()
+
+
+def format_file_content_for_path(content: str, target: Path) -> str:
+    if target.suffix.lower() in {".html", ".htm"}:
+        return format_html_document(content)
+    return content
+
+
+VOID_HTML_TAGS = {
+    "area",
+    "base",
+    "br",
+    "col",
+    "embed",
+    "hr",
+    "img",
+    "input",
+    "link",
+    "meta",
+    "param",
+    "source",
+    "track",
+    "wbr",
+}
+
+
+def format_html_document(content: str) -> str:
+    stripped = content.strip()
+    if "\n" in stripped and len(stripped.splitlines()) > 4:
+        return content
+
+    raw_blocks: list[str] = []
+
+    def replace_raw_block(match: re.Match[str]) -> str:
+        raw_blocks.append(match.group(0))
+        return f"___AGENTFLOW_RAW_HTML_BLOCK_{len(raw_blocks) - 1}___"
+
+    safe_html = re.sub(
+        r"<(script|style)\b[^>]*>.*?</\1>",
+        replace_raw_block,
+        stripped,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    tokens = re.split(r"(<[^>]+>)", safe_html)
+    lines: list[str] = []
+    indent = 0
+
+    for token in tokens:
+        if not token:
+            continue
+        is_tag = token.startswith("<") and token.endswith(">")
+        if not is_tag:
+            text = token.strip()
+            raw_match = re.fullmatch(r"___AGENTFLOW_RAW_HTML_BLOCK_(\d+)___", text)
+            if raw_match:
+                lines.extend(format_raw_html_block(raw_blocks[int(raw_match.group(1))], indent))
+            elif text:
+                lines.append(f"{'  ' * indent}{text}")
+            continue
+
+        tag_name = html_tag_name(token)
+        is_closing = token.startswith("</")
+        is_void = tag_name in VOID_HTML_TAGS or token.endswith("/>")
+        if is_closing:
+            indent = max(0, indent - 1)
+
+        lines.append(f"{'  ' * indent}{token.strip()}")
+
+        if not is_closing and not is_void and not token.startswith("<!"):
+            indent += 1
+
+    return "\n".join(lines).strip() + "\n"
+
+
+def html_tag_name(tag: str) -> str:
+    match = re.match(r"</?\s*([a-zA-Z0-9:-]+)", tag)
+    return match.group(1).lower() if match else ""
+
+
+def format_raw_html_block(block: str, indent: int) -> list[str]:
+    match = re.match(r"(<(script|style)\b[^>]*>)(.*)(</\2>)", block, flags=re.IGNORECASE | re.DOTALL)
+    if not match:
+        return [f"{'  ' * indent}{block.strip()}"]
+    start_tag = match.group(1).strip()
+    body = match.group(3).strip()
+    end_tag = match.group(4).strip()
+    lines = [f"{'  ' * indent}{start_tag}"]
+    if body:
+        lines.append(f"{'  ' * (indent + 1)}{body}")
+    lines.append(f"{'  ' * indent}{end_tag}")
+    return lines

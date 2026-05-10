@@ -1817,6 +1817,239 @@ Próximo passo recomendado:
 Executar uma pipeline no Playground com `image_generate` permitido e confirmar que o preview usa o fallback quando o primário falhar.
 ```
 
+### Registro 033 — Correção de pipeline stale ao trocar projeto
+
+Status:
+
+```txt
+Concluído
+```
+
+Resumo:
+
+Foi corrigido um bug em que o frontend podia combinar um projeto recém-selecionado/criado com uma pipeline ainda selecionada do projeto anterior. Esse estado intermediário podia disparar chamadas inválidas para execução ou histórico, resultando em erro `Pipeline not found` no backend.
+
+Arquivos criados/alterados:
+
+```txt
+AGENTS.md
+frontend/src/App.tsx
+```
+
+Decisões tomadas:
+
+- A seleção de projeto agora limpa imediatamente agentes, pipelines, execução e pipeline selecionada.
+- `selectedPipeline` só é considerado válido se pertencer ao `selectedProjectId` atual.
+- As chamadas de histórico de execução agora usam o `selectedPipeline` validado, não apenas o ID cru salvo em estado.
+- Foram adicionados guards por request mais recente para ignorar respostas atrasadas de carregamento de dados do projeto ou execuções.
+
+Validações executadas:
+
+```txt
+frontend/npm run build
+```
+
+Pendências:
+
+- Validar manualmente o fluxo de criar projeto, trocar projeto, criar pipeline e executar no Playground.
+
+Próximo passo recomendado:
+
+```txt
+Reproduzir o cenário original no navegador e confirmar que a tela não tenta mais executar/listar pipeline de outro projeto.
+```
+
+### Registro 034 — Preview de arquivos no Playground
+
+Status:
+
+```txt
+Concluído
+```
+
+Resumo:
+
+Foi adicionada ao Playground a capacidade de abrir arquivos gerados por tool calls. A visualização identifica a extensão do arquivo, aplica formatação visual adequada para texto e snippets de código e adiciona ação extra para executar arquivos HTML em uma nova aba.
+
+Arquivos criados/alterados:
+
+```txt
+AGENTS.md
+frontend/src/pages/PlaygroundPage.tsx
+frontend/src/styles.css
+orchestrator/app/main.py
+```
+
+Decisões tomadas:
+
+- Tool calls `file_write` concluídas agora exibem o botão `Abrir arquivo`.
+- A modal tenta usar `content`/`contentBase64` já retornado pela tool e, quando necessário, busca o conteúdo via `publicUrl`.
+- A visualização detecta extensão e mostra linguagem como texto, Markdown, JSON, HTML, Python, JS/TS, CSS, Java e YAML.
+- Foi implementado syntax highlighting leve local, sem adicionar dependência externa.
+- Arquivos HTML exibem o botão `Executar`, que abre o `publicUrl` em uma nova aba.
+- O orchestrator passou a permitir CORS local para o frontend buscar conteúdos de `/tool-files`.
+
+Validações executadas:
+
+```txt
+frontend/npm run build
+orchestrator/python -m pytest
+```
+
+Pendências:
+
+- Validar manualmente no Playground com arquivos `.txt`, `.ts/.tsx`, `.py` e `.html` gerados pelas tools.
+
+Próximo passo recomendado:
+
+```txt
+Executar uma pipeline com `file_write` e `file_read`, abrir os arquivos nos traces e testar o botão `Executar` em um HTML.
+```
+
+### Registro 035 — Ordem de tools e busca web resiliente
+
+Status:
+
+```txt
+Concluído
+```
+
+Resumo:
+
+Foi corrigida a ordem de execução das tools para que `file_write` rode depois da resposta do agente, permitindo salvar o artefato gerado pelo LLM em vez do input recebido. Também foi reforçada a busca web com queries fallback simples para aumentar a chance de encontrar resultados reais quando a consulta original for muito específica.
+
+Arquivos criados/alterados:
+
+```txt
+AGENTS.md
+frontend/src/pages/PlaygroundPage.tsx
+orchestrator/app/graph/pipeline_graph.py
+orchestrator/app/mcp/tools.py
+orchestrator/tests/test_main.py
+orchestrator/tests/test_tools.py
+```
+
+Decisões tomadas:
+
+- Tools de pré-geração continuam rodando antes do LLM, como `web_search`, `file_read` e `image_generate`.
+- `file_write` passou a rodar após a geração do LLM, usando o output do agente como entrada.
+- O botão `Abrir arquivo` no Playground agora aparece somente para arquivos escritos por `file_write`, evitando duplicidade com arquivos apenas lidos.
+- O botão de arquivo mostra uma prévia compacta do nome do arquivo.
+- `web_search` agora tenta queries simples como `GitHub issue triage`, `bug report triage`, `issue tracking system`, `bug tracking system` e `GitHub` quando a query original não retorna resultados.
+
+Validações executadas:
+
+```txt
+orchestrator/python -m pytest
+frontend/npm run build
+```
+
+Pendências:
+
+- Validar manualmente no Playground se os agentes de backend/frontend passam a salvar `.ts` e `.tsx` com código fonte real.
+
+Próximo passo recomendado:
+
+```txt
+Recriar os containers de frontend e orchestrator antes de testar a pipeline novamente no navegador.
+```
+
+### Registro 036 — Extração de código em file_write e scroll de preview
+
+Status:
+
+```txt
+Concluído
+```
+
+Resumo:
+
+Foi refinada a tool `file_write` para lidar com respostas naturais de agentes de código, como `BACKEND_PATH:` ou `FRONTEND_PATH:` seguidos de resumo e bloco cercado por Markdown. Nesses casos, a tool infere o caminho de saída, extrai somente o bloco de código compatível com a extensão e salva o arquivo real (`.ts`, `.tsx`, `.html`, etc.) em vez de gravar todo o texto da resposta em `.txt`. O preview de arquivos também foi ajustado para rolar corretamente arquivos longos.
+
+Arquivos criados/alterados:
+
+```txt
+AGENTS.md
+frontend/src/styles.css
+orchestrator/app/mcp/tools.py
+orchestrator/tests/test_main.py
+orchestrator/tests/test_tools.py
+```
+
+Decisões tomadas:
+
+- `file_write` continua priorizando JSON explícito quando o agente fornece `file_write.content`.
+- Quando não há JSON estruturado, a tool procura labels como `BACKEND_PATH`, `FRONTEND_PATH` e `BRIEFING_PATH`.
+- Para saídas com caminho de código, a tool extrai o fence Markdown correspondente à extensão, como `typescript` para `.ts` e `tsx` para `.tsx`.
+- Escritas com path inferido passam a sobrescrever o arquivo dentro do workspace para facilitar reexecuções de demo.
+- A modal de preview de arquivo virou um layout flexível com body rolável, evitando corte em arquivos grandes.
+
+Validações executadas:
+
+```txt
+orchestrator/python -m pytest
+frontend/npm run build
+git diff --check
+```
+
+Pendências:
+
+- Validar manualmente no Playground com os agentes já configurados pelo usuário.
+
+Próximo passo recomendado:
+
+```txt
+Recriar os containers e executar a pipeline existente para confirmar que os traces passam a apontar para os arquivos de código reais.
+```
+
+### Registro 037 — Prompts de demo e JSON cercado por Markdown
+
+Status:
+
+```txt
+Concluído
+```
+
+Resumo:
+
+Foram atualizados via API os prompts dos agentes do projeto existente usado na demo para tornar a saída mais previsível. Também foi corrigido o parser de payload das tools para aceitar JSON puro, JSON dentro de bloco ```json e objeto JSON embutido no texto, evitando que respostas cercadas por Markdown sejam tratadas como texto comum e salvas em `.txt`.
+
+Arquivos criados/alterados:
+
+```txt
+AGENTS.md
+orchestrator/app/mcp/tools.py
+orchestrator/tests/test_tools.py
+```
+
+Decisões tomadas:
+
+- O Pesquisador Tech foi reforçado para usar uma query simples e confiável.
+- O Escritor de Histórias foi ajustado para salvar `demo-issue-triage/briefing.md`.
+- O Backend Engineer foi ajustado para salvar `demo-issue-triage/backend/triage-service.ts`.
+- O Frontend Engineer foi ajustado para salvar `demo-issue-triage/frontend/issue-triage-demo.html`, permitindo abrir e executar pelo Playground.
+- O parser das tools agora tolera modelos que envolvem JSON em fence Markdown apesar da instrução para responder somente JSON.
+
+Validações executadas:
+
+```txt
+execução real da pipeline existente retornou COMPLETED
+reexecução após rebuild confirmou file_write em demo-issue-triage/briefing.md
+reexecução após rebuild confirmou file_write em demo-issue-triage/backend/triage-service.ts
+reexecução após rebuild confirmou file_write em demo-issue-triage/frontend/issue-triage-demo.html
+GET dos três arquivos via /tool-files retornou conteúdo correto
+```
+
+Pendências:
+
+- Nenhuma pendência funcional para o fluxo validado.
+
+Próximo passo recomendado:
+
+```txt
+Usar a execução nova no Playground e ignorar execuções antigas que ainda apontam para arquivos `.txt` gerados antes da correção.
+```
+
 ## 9. Contratos importantes
 
 ### Backend para Orchestrator

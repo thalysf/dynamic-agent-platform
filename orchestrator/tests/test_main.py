@@ -3,6 +3,8 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 
+from app.graph import pipeline_graph
+from app import main as app_main
 from app.main import app
 
 client = TestClient(app)
@@ -29,6 +31,39 @@ def test_tool_files_are_served_from_tool_workspace(tmp_path, monkeypatch) -> Non
 
     assert response.status_code == 200
     assert response.text == "hello preview"
+
+
+def test_backend_runner_rejects_paths_outside_demo_backend(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("AGENTFLOW_TOOL_WORKDIR", str(tmp_path))
+    (tmp_path / "other.ts").write_text("console.log('nope')", encoding="utf-8")
+
+    response = client.post("/tool-files/backend-runs", json={"path": "other.ts"})
+
+    assert response.status_code == 400
+    assert "demo-issue-triage/backend" in response.json()["detail"]
+
+
+def test_backend_runner_requires_existing_backend_file(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("AGENTFLOW_TOOL_WORKDIR", str(tmp_path))
+
+    response = client.post(
+        "/tool-files/backend-runs",
+        json={"path": "demo-issue-triage/backend/triage-service.ts"},
+    )
+
+    assert response.status_code == 404
+
+
+def test_demo_backend_proxy_returns_contract_fallback_when_backend_is_down(monkeypatch) -> None:
+    monkeypatch.setattr(app_main, "BACKEND_RUN_PORT", 9)
+
+    response = client.post("/demo-backend/triage", json={"title": "Bug", "description": "Falha"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["severity"] == "configuração necessária"
+    assert body["isDuplicate"] is False
+    assert "Executar backend" in body["summary"]
 
 
 def test_run_orchestration_mock() -> None:
@@ -136,6 +171,72 @@ def test_tool_failure_marks_step_as_failed(tmp_path, monkeypatch) -> None:
     assert body["steps"][0]["status"] == "FAILED"
     assert body["steps"][0]["toolCalls"][0]["toolName"] == "file_read"
     assert body["steps"][0]["errorMessage"]
+
+
+def test_file_write_runs_after_agent_output(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("AGENTFLOW_TOOL_WORKDIR", str(tmp_path))
+    execution_id = str(uuid4())
+    project_id = str(uuid4())
+    pipeline_id = str(uuid4())
+    node_id = str(uuid4())
+    agent_id = str(uuid4())
+
+    def fake_generate_agent_output(agent, user_input, context, tool_calls):
+        assert user_input == "initial brief"
+        return """BACKEND_PATH: generated/example.ts
+
+Resumo da implementacao:
+Arquivo TypeScript criado.
+
+```typescript
+export const value = 1;
+```
+"""
+
+    monkeypatch.setattr(pipeline_graph, "generate_agent_output", fake_generate_agent_output)
+
+    response = client.post(
+        "/orchestrations/run",
+        json={
+            "executionId": execution_id,
+            "projectId": project_id,
+            "pipeline": {
+                "id": pipeline_id,
+                "nodes": [
+                    {
+                        "id": node_id,
+                        "type": "agent",
+                        "position": {"x": 0, "y": 0},
+                        "data": {"agentId": agent_id, "label": "Coder"},
+                    }
+                ],
+                "edges": [],
+            },
+            "agents": [
+                {
+                    "id": agent_id,
+                    "projectId": project_id,
+                    "name": "Coder",
+                    "description": None,
+                    "systemPrompt": "Generate code",
+                    "agentType": "CODE_GENERATION",
+                    "modelProvider": "groq",
+                    "modelName": "llama-3.1-70b-versatile",
+                    "temperature": 0.2,
+                    "allowedTools": ["file_write"],
+                }
+            ],
+            "initialInput": {"content": "initial brief", "attachments": []},
+        },
+    )
+
+    body = response.json()
+
+    assert response.status_code == 200
+    assert body["steps"][0]["status"] == "COMPLETED"
+    assert body["steps"][0]["toolCalls"][0]["toolName"] == "file_write"
+    assert body["steps"][0]["toolCalls"][0]["result"]["path"] == "generated/example.ts"
+    assert (tmp_path / "generated" / "example.ts").read_text(encoding="utf-8") == "export const value = 1;"
 
 
 def test_branching_nodes_receive_only_direct_predecessor_context() -> None:

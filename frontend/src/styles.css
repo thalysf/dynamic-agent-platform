@@ -677,6 +677,21 @@ body {
   background: rgb(207, 250, 254);
 }
 
+.trace-file-button {
+  border: 1px solid rgb(187, 247, 208);
+  border-radius: 8px;
+  background: rgb(240, 253, 244);
+  color: rgb(21, 128, 61);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 8px 10px;
+}
+
+.trace-file-button:hover {
+  background: rgb(220, 252, 231);
+}
+
 .trace-empty-state {
   border: 1px dashed rgb(203, 213, 225);
   border-radius: 8px;
@@ -751,6 +766,231 @@ body {
   padding: 12px;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.file-preview-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  background: rgba(2, 6, 23, 0.72);
+  padding: 24px;
+}
+
+.file-preview-modal {
+  display: flex;
+  flex-direction: column;
+  width: min(1180px, 100%);
+  max-height: min(920px, calc(100vh - 48px));
+  overflow: hidden;
+  border: 1px solid rgba(125, 211, 252, 0.34);
+  border-radius: 8px;
+  background:
+    linear-gradient(145deg, rgba(2, 6, 23, 0.98), rgba(15, 23, 42, 0.97)),
+    radial-gradient(circle at top right, rgba(20, 184, 166, 0.16), transparent 34%);
+  box-shadow: 0 28px 80px rgba(2, 6, 23, 0.48);
+}
+
+.file-preview-header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+  padding: 18px;
+}
+
+.file-preview-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.file-language-pill {
+  border: 1px solid rgba(125, 211, 252, 0.34);
+  border-radius: 999px;
+  background: rgba(8, 47, 73, 0.72);
+  color: rgb(207, 250, 254);
+  font-size: 11px;
+  font-weight: 800;
+  padding: 6px 9px;
+}
+
+.file-language-pill.py {
+  border-color: rgba(250, 204, 21, 0.42);
+  background: rgba(30, 64, 175, 0.42);
+  color: rgb(254, 240, 138);
+}
+
+.file-language-pill.html,
+.file-language-pill.htm {
+  border-color: rgba(251, 146, 60, 0.48);
+  background: rgba(124, 45, 18, 0.5);
+  color: rgb(255, 237, 213);
+}
+
+.file-run-button {
+  border: 1px solid rgba(52, 211, 153, 0.44);
+  border-radius: 8px;
+  background: rgba(6, 78, 59, 0.84);
+  color: rgb(236, 253, 245);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 8px 10px;
+}
+
+.file-run-button:hover {
+  background: rgba(5, 150, 105, 0.88);
+}
+
+.file-run-button.backend {
+  border-color: rgba(125, 211, 252, 0.46);
+  background: rgba(8, 47, 73, 0.88);
+}
+
+.file-run-button.backend:hover {
+  background: rgba(14, 116, 144, 0.9);
+}
+
+.file-run-button:disabled {
+  cursor: progress;
+  opacity: 0.72;
+}
+
+.file-run-message {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+  color: rgb(226, 232, 240);
+  font-size: 13px;
+  line-height: 1.55;
+  padding: 12px 18px;
+}
+
+.file-run-message p {
+  margin: 0;
+}
+
+.file-run-message a {
+  border: 1px solid rgba(125, 211, 252, 0.34);
+  border-radius: 999px;
+  color: rgb(207, 250, 254);
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 6px 9px;
+  text-decoration: none;
+}
+
+.file-run-message.success {
+  background: rgba(6, 78, 59, 0.42);
+}
+
+.file-run-message.error {
+  background: rgba(127, 29, 29, 0.45);
+  color: rgb(254, 226, 226);
+}
+
+.file-run-message.running {
+  background: rgba(8, 47, 73, 0.44);
+}
+
+.file-preview-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 18px;
+}
+
+.file-preview-body pre {
+  min-height: min(340px, calc(100vh - 240px));
+  overflow: visible;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 8px;
+  background: rgba(2, 6, 23, 0.76);
+  color: rgb(226, 232, 240);
+  font-family: "Cascadia Code", "Fira Code", "JetBrains Mono", Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.7;
+  margin: 0;
+  padding: 16px;
+  tab-size: 2;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.file-preview-body.language-txt pre,
+.file-preview-body.language-md pre {
+  background: rgb(248, 250, 252);
+  color: rgb(30, 41, 59);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.file-preview-body.language-py pre {
+  background:
+    linear-gradient(135deg, rgba(30, 64, 175, 0.18), transparent 36%),
+    rgba(2, 6, 23, 0.9);
+}
+
+.file-preview-body.language-html pre,
+.file-preview-body.language-htm pre {
+  background:
+    linear-gradient(135deg, rgba(249, 115, 22, 0.12), transparent 32%),
+    rgba(2, 6, 23, 0.88);
+}
+
+.file-preview-state,
+.file-preview-error {
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 8px;
+  color: rgb(226, 232, 240);
+  margin: 0;
+  padding: 16px;
+}
+
+.file-preview-error {
+  border-color: rgba(248, 113, 113, 0.42);
+  color: rgb(254, 202, 202);
+}
+
+.code-token.keyword {
+  color: rgb(96, 165, 250);
+  font-weight: 800;
+}
+
+.code-token.type {
+  color: rgb(45, 212, 191);
+  font-weight: 700;
+}
+
+.code-token.string {
+  color: rgb(134, 239, 172);
+}
+
+.code-token.comment {
+  color: rgb(148, 163, 184);
+  font-style: italic;
+}
+
+.code-token.number {
+  color: rgb(253, 186, 116);
+}
+
+.code-token.tag {
+  color: rgb(251, 146, 60);
+  font-weight: 800;
+}
+
+.code-token.attribute {
+  color: rgb(250, 204, 21);
 }
 
 .execution-graph-node {

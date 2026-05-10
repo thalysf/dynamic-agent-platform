@@ -98,9 +98,11 @@ def build_agent_node(
             context=context,
             metadata={"stepIndex": index, "pipelineId": str(request.pipeline.id), "nodeId": node_id},
         )
-        tool_calls = run_allowed_tools(agent.allowedTools, input_content, context)
+        pre_tool_calls = run_allowed_tools(pre_generation_tools(agent.allowedTools), input_content, context)
+        output = generate_agent_output(agent, message.content, context, pre_tool_calls)
+        post_tool_calls = run_allowed_tools(post_generation_tools(agent.allowedTools), output, context)
+        tool_calls = [*pre_tool_calls, *post_tool_calls]
         failed_tool_errors = [str(call.get("error")) for call in tool_calls if call.get("status") == "FAILED"]
-        output = generate_agent_output(agent, message.content, context, tool_calls)
         finished_at = datetime.now(timezone.utc)
         step_status = "FAILED" if failed_tool_errors else "COMPLETED"
 
@@ -124,6 +126,14 @@ def build_agent_node(
         }
 
     return run_agent
+
+
+def pre_generation_tools(allowed_tools: set[str]) -> set[str]:
+    return {tool for tool in allowed_tools if tool != "file_write"}
+
+
+def post_generation_tools(allowed_tools: set[str]) -> set[str]:
+    return {"file_write"} if "file_write" in allowed_tools else set()
 
 
 def build_graph_spec(nodes: list[dict[str, Any]], edges: list[dict[str, Any]]) -> dict[str, Any]:

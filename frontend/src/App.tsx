@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Agent, Execution, Pipeline, Project, listAgents, listExecutions, listPipelines, listProjects } from './api/client';
 import AppShell, { AppView } from './components/AppShell';
@@ -27,6 +27,8 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const projectDataRequestRef = useRef(0);
+  const executionsRequestRef = useRef(0);
 
   const selectedProject = useMemo(
     () => projects.find((project) => project.id === selectedProjectId) ?? null,
@@ -34,8 +36,8 @@ function App() {
   );
 
   const selectedPipeline = useMemo(
-    () => pipelines.find((pipeline) => pipeline.id === selectedPipelineId) ?? null,
-    [pipelines, selectedPipelineId],
+    () => pipelines.find((pipeline) => pipeline.id === selectedPipelineId && pipeline.projectId === selectedProjectId) ?? null,
+    [pipelines, selectedPipelineId, selectedProjectId],
   );
 
   const refreshProjects = useCallback(async () => {
@@ -53,6 +55,7 @@ function App() {
   }, []);
 
   const refreshProjectData = useCallback(async (projectId: string) => {
+    const requestId = ++projectDataRequestRef.current;
     if (!projectId) {
       setAgents([]);
       setPipelines([]);
@@ -63,24 +66,38 @@ function App() {
     setError(null);
     try {
       const [agentData, pipelineData] = await Promise.all([listAgents(projectId), listPipelines(projectId)]);
+      if (requestId !== projectDataRequestRef.current) {
+        return;
+      }
       setAgents(agentData);
       setPipelines(pipelineData);
       setSelectedPipelineId((current) =>
         current && pipelineData.some((pipeline) => pipeline.id === current) ? current : pipelineData[0]?.id || '',
       );
     } catch (reason) {
+      if (requestId !== projectDataRequestRef.current) {
+        return;
+      }
       setError(reason instanceof Error ? reason.message : 'Falha ao carregar dados do projeto');
     }
   }, []);
 
   const refreshExecutions = useCallback(async (projectId: string, pipelineId: string) => {
+    const requestId = ++executionsRequestRef.current;
     if (!projectId || !pipelineId) {
       setExecutions([]);
       return;
     }
     try {
-      setExecutions(await listExecutions(projectId, pipelineId));
+      const executionData = await listExecutions(projectId, pipelineId);
+      if (requestId !== executionsRequestRef.current) {
+        return;
+      }
+      setExecutions(executionData);
     } catch (reason) {
+      if (requestId !== executionsRequestRef.current) {
+        return;
+      }
       setError(reason instanceof Error ? reason.message : 'Falha ao carregar execucoes');
     }
   }, []);
@@ -90,8 +107,16 @@ function App() {
   }, [refreshProjectData, selectedProjectId]);
 
   const refreshSelectedExecutions = useCallback(async () => {
-    await refreshExecutions(selectedProjectId, selectedPipelineId);
-  }, [refreshExecutions, selectedPipelineId, selectedProjectId]);
+    await refreshExecutions(selectedProjectId, selectedPipeline?.id || '');
+  }, [refreshExecutions, selectedPipeline?.id, selectedProjectId]);
+
+  const selectProject = useCallback((projectId: string) => {
+    setSelectedProjectId(projectId);
+    setAgents([]);
+    setPipelines([]);
+    setSelectedPipelineId('');
+    setExecutions([]);
+  }, []);
 
   useEffect(() => {
     void refreshProjects();
@@ -102,8 +127,8 @@ function App() {
   }, [refreshProjectData, selectedProjectId]);
 
   useEffect(() => {
-    void refreshExecutions(selectedProjectId, selectedPipelineId);
-  }, [refreshExecutions, selectedPipelineId, selectedProjectId]);
+    void refreshExecutions(selectedProjectId, selectedPipeline?.id || '');
+  }, [refreshExecutions, selectedPipeline?.id, selectedProjectId]);
 
   useEffect(() => {
     function handleHashChange() {
@@ -132,10 +157,7 @@ function App() {
       view={view}
       onNavigate={navigate}
       onRefresh={() => void refreshProjects()}
-      onSelectProject={(projectId) => {
-        setSelectedProjectId(projectId);
-        setSelectedPipelineId('');
-      }}
+      onSelectProject={selectProject}
     >
       {view === 'home' ? (
         <HomePage agentCount={agents.length} pipelineCount={pipelines.length} projectCount={projects.length} onNavigate={navigate} />
@@ -149,7 +171,7 @@ function App() {
           onBusyChange={setBusy}
           onError={setError}
           onProjectsChanged={refreshProjects}
-          onSelectProject={setSelectedProjectId}
+          onSelectProject={selectProject}
         />
       ) : null}
 

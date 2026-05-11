@@ -28,6 +28,18 @@ import {
 } from '../api/client';
 import { parseFlow } from '../flows/flowUtils';
 import { AgentNode } from '../flows/types';
+import {
+  FilePreview,
+  ToolCall,
+  createLoadingFilePreview,
+  filePreviewButtonLabel,
+  fileToolCalls,
+  isHtmlExtension,
+  isMarkdownExtension,
+  loadFilePreview,
+  renderHighlightedCode,
+  renderMarkdownPreview,
+} from './playground/filePreview';
 
 type PlaygroundPageProps = {
   selectedProject: Project | null;
@@ -92,41 +104,10 @@ type RuntimeNodeData = {
 type RuntimeNode = FlowNode<RuntimeNodeData, 'runtime'>;
 type RuntimeEdge = FlowEdge;
 type MiniMapStep = Pick<RuntimeNodeData, 'index' | 'label' | 'status'>;
-type ToolCall = {
-  toolName?: string;
-  status?: string;
-  result?: {
-    publicUrl?: string;
-    path?: string;
-    absolutePath?: string;
-    mimeType?: string;
-    bytesRead?: number;
-    bytesWritten?: number;
-    query?: string;
-    source?: string;
-    content?: string;
-    contentBase64?: string;
-    [key: string]: unknown;
-  };
-  error?: string;
-};
 type ImagePreview = {
   url: string;
   title: string;
   path: string;
-};
-type FilePreview = {
-  title: string;
-  path: string;
-  url: string;
-  extension: string;
-  language: string;
-  content: string;
-  loading: boolean;
-  error: string | null;
-  runStatus: 'idle' | 'running' | 'success' | 'error';
-  runMessage: string | null;
-  runUrl: string | null;
 };
 type StepDetailPreview = {
   step: ExecutionStep;
@@ -563,11 +544,11 @@ function renderFormattedSummary(value: string | null) {
     }
     if (block.type === 'unordered-list') {
       return (
-      <ul key={`list-${index}`}>
-        {block.items.map((item, itemIndex) => (
-          <li key={`${index}-${itemIndex}`}>{renderInlineMarkdown(item)}</li>
-        ))}
-      </ul>
+        <ul key={`list-${index}`}>
+          {block.items.map((item, itemIndex) => (
+            <li key={`${index}-${itemIndex}`}>{renderInlineMarkdown(item)}</li>
+          ))}
+        </ul>
       );
     }
     return null;
@@ -590,23 +571,6 @@ function imageToolCalls(value: string | null): ToolCall[] {
   return parseToolCalls(value).filter(
     (call) => call.toolName === 'image_generate' && call.status === 'COMPLETED' && call.result?.publicUrl,
   );
-}
-
-function fileToolCalls(value: string | null): ToolCall[] {
-  return parseToolCalls(value).filter((call) => {
-    if (call.status !== 'COMPLETED' || call.toolName !== 'file_write') {
-      return false;
-    }
-    const result = call.result;
-    return Boolean(result?.path || result?.publicUrl || result?.content || result?.contentBase64);
-  });
-}
-
-function filePreviewButtonLabel(call: ToolCall) {
-  const path = call.result?.path || call.result?.absolutePath || 'arquivo';
-  const filename = path.split(/[\\/]/).filter(Boolean).pop() || path;
-  const compact = filename.length > 28 ? `${filename.slice(0, 12)}...${filename.slice(-12)}` : filename;
-  return `Abrir ${compact}`;
 }
 
 function hasFailedToolCalls(value: string | null) {
@@ -651,166 +615,6 @@ function toolStatusClass(status?: string) {
     return 'completed';
   }
   return 'pending';
-}
-
-function fileExtension(path: string) {
-  const cleanPath = path.split('?')[0]?.split('#')[0] ?? path;
-  const filename = cleanPath.split('/').pop() ?? cleanPath;
-  const match = filename.match(/\.([a-z0-9]+)$/i);
-  return match ? match[1].toLowerCase() : 'txt';
-}
-
-function languageForExtension(extension: string) {
-  const languages: Record<string, string> = {
-    css: 'CSS',
-    html: 'HTML',
-    htm: 'HTML',
-    java: 'Java',
-    js: 'JavaScript',
-    json: 'JSON',
-    jsx: 'React JSX',
-    md: 'Markdown',
-    py: 'Python',
-    ts: 'TypeScript',
-    tsx: 'React TSX',
-    txt: 'Texto',
-    yml: 'YAML',
-    yaml: 'YAML',
-  };
-  return languages[extension] ?? extension.toUpperCase();
-}
-
-function isHtmlExtension(extension: string) {
-  return extension === 'html' || extension === 'htm';
-}
-
-function isBackendRunnableFile(path: string, extension: string) {
-  const normalized = path.replace(/\\/g, '/').replace(/^\/+/, '');
-  return (extension === 'ts' || extension === 'js') && normalized.startsWith('demo-issue-triage/backend/');
-}
-
-function backendRunEndpoint(filePreview: FilePreview) {
-  const baseUrl = filePreview.url ? new URL(filePreview.url).origin : 'http://localhost:8000';
-  return `${baseUrl}/tool-files/backend-runs`;
-}
-
-function decodeBase64Content(value: string) {
-  try {
-    return decodeURIComponent(
-      Array.from(window.atob(value))
-        .map((char) => `%${char.charCodeAt(0).toString(16).padStart(2, '0')}`)
-        .join(''),
-    );
-  } catch {
-    return 'Conteudo binario em base64. Nao foi possivel renderizar como texto.';
-  }
-}
-
-function previewContent(content: string, extension: string) {
-  if (extension === 'html' || extension === 'htm') {
-    return formatHtmlPreview(content);
-  }
-  return content;
-}
-
-function formatHtmlPreview(content: string) {
-  const trimmed = content.trim();
-  if (!trimmed || trimmed.includes('\n')) {
-    return content;
-  }
-  const withBreaks = trimmed
-    .replace(/>\s*</g, '>\n<')
-    .replace(/(<\/style>)/gi, '$1\n')
-    .replace(/(<script[^>]*>)/gi, '$1\n')
-    .replace(/(<\/script>)/gi, '\n$1');
-  const lines = withBreaks.split('\n').map((line) => line.trim()).filter(Boolean);
-  let indent = 0;
-  return lines
-    .map((line) => {
-      if (/^<\/(?!html)/i.test(line)) {
-        indent = Math.max(0, indent - 1);
-      }
-      const formatted = `${'  '.repeat(indent)}${line}`;
-      if (/^<[^/!][^>]*[^/]>(?!.*<\/)/.test(line) && !/^<(meta|link|input|br|hr|img)\b/i.test(line)) {
-        indent += 1;
-      }
-      return formatted;
-    })
-    .join('\n');
-}
-
-function syntaxClassForToken(token: string, extension: string) {
-  if (/^["'`].*["'`]$/.test(token)) {
-    return 'string';
-  }
-  if (/^<!--|^\/\*|^#|^\/\//.test(token)) {
-    return 'comment';
-  }
-  if (/^\d+(\.\d+)?$/.test(token)) {
-    return 'number';
-  }
-  if (extension === 'html' || extension === 'htm') {
-    if (/^<\/?[A-Za-z][\w-]*/.test(token) || token === '>' || token === '/>') {
-      return 'tag';
-    }
-    if (/^[\w-]+(?==)/.test(token)) {
-      return 'attribute';
-    }
-  }
-  if (extension === 'py' && /^(False|None|True|and|as|async|await|class|def|elif|else|except|finally|for|from|if|import|in|is|lambda|not|or|pass|raise|return|try|while|with|yield)$/.test(token)) {
-    return 'keyword';
-  }
-  if (/^(break|case|catch|class|const|continue|default|else|export|extends|finally|for|from|function|if|import|interface|let|new|return|switch|throw|try|type|const|var|while)$/.test(token)) {
-    return 'keyword';
-  }
-  if (/^(boolean|number|string|void|Promise|Record|Array|React|Request|Response)$/.test(token)) {
-    return 'type';
-  }
-  return '';
-}
-
-function syntaxPatternForExtension(extension: string) {
-  if (extension === 'html' || extension === 'htm') {
-    return /(<!--[\s\S]*?-->|<\/?[A-Za-z][\w-]*|\/?>|[\w-]+(?==)|"[^"]*"|'[^']*')/g;
-  }
-  if (extension === 'py') {
-    return /(#.*|"""[\s\S]*?"""|'''[\s\S]*?'''|"[^"]*"|'[^']*'|\b\d+(?:\.\d+)?\b|\b[A-Za-z_][\w]*\b)/g;
-  }
-  return /(\/\/.*|\/\*[\s\S]*?\*\/|"[^"]*"|'[^']*'|`[^`]*`|\b\d+(?:\.\d+)?\b|\b[A-Za-z_$][\w$]*\b)/g;
-}
-
-function renderHighlightedCode(content: string, extension: string): ReactNode[] {
-  if (!content) {
-    return ['Arquivo vazio.'];
-  }
-  if (extension === 'txt') {
-    return [content];
-  }
-  const pattern = syntaxPatternForExtension(extension);
-  const nodes: ReactNode[] = [];
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-  while ((match = pattern.exec(content)) !== null) {
-    if (match.index > lastIndex) {
-      nodes.push(content.slice(lastIndex, match.index));
-    }
-    const token = match[0];
-    const className = syntaxClassForToken(token, extension);
-    nodes.push(
-      className ? (
-        <span className={`code-token ${className}`} key={`${match.index}-${token}`}>
-          {token}
-        </span>
-      ) : (
-        token
-      ),
-    );
-    lastIndex = pattern.lastIndex;
-  }
-  if (lastIndex < content.length) {
-    nodes.push(content.slice(lastIndex));
-  }
-  return nodes;
 }
 
 function effectiveStepStatus(step: ExecutionStep): Execution['status'] {
@@ -1153,106 +957,21 @@ function PlaygroundPage({
   }
 
   async function openFilePreview(call: ToolCall, title: string) {
-    const result = call.result;
-    if (!result) {
-      return;
-    }
-    const path = result.path || result.absolutePath || 'arquivo-gerado';
-    const url = result.publicUrl || '';
-    const extension = fileExtension(path);
-    const basePreview: FilePreview = {
-      title,
-      path,
-      url,
-      extension,
-      language: languageForExtension(extension),
-      content: '',
-      loading: true,
-      error: null,
-      runStatus: 'idle',
-      runMessage: null,
-      runUrl: null,
-    };
-    setFilePreview(basePreview);
-
-    if (typeof result.content === 'string') {
-      setFilePreview({ ...basePreview, content: previewContent(result.content, extension), loading: false });
-      return;
-    }
-    if (typeof result.contentBase64 === 'string') {
-      setFilePreview({ ...basePreview, content: previewContent(decodeBase64Content(result.contentBase64), extension), loading: false });
-      return;
-    }
-    if (!url) {
-      setFilePreview({ ...basePreview, loading: false, error: 'Este arquivo nao possui URL publica para leitura.' });
-      return;
-    }
-
+    setFilePreview(createLoadingFilePreview(call, title));
     try {
-      const response = await fetch(url);
-      if (!response.ok) {
-        throw new Error(`Falha ao carregar arquivo: ${response.status}`);
-      }
-      const content = await response.text();
-      setFilePreview({ ...basePreview, content: previewContent(content, extension), loading: false });
+      const preview = await loadFilePreview(call, title);
+      setFilePreview({ ...preview, loading: false });
     } catch (reason) {
       setFilePreview({
-        ...basePreview,
+        title,
+        path: call.result?.path || call.result?.absolutePath || 'arquivo-gerado',
+        url: call.result?.publicUrl || '',
+        extension: 'txt',
+        language: 'Texto',
+        content: '',
         loading: false,
         error: reason instanceof Error ? reason.message : 'Falha ao carregar arquivo.',
       });
-    }
-  }
-
-  async function runBackendPreview(preview: FilePreview) {
-    setFilePreview((current) =>
-      current
-        ? {
-            ...current,
-            runStatus: 'running',
-            runMessage: 'Iniciando backend na porta 3000...',
-            runUrl: null,
-          }
-        : current,
-    );
-
-    try {
-      const response = await fetch(backendRunEndpoint(preview), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: preview.path }),
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(
-          payload.detail ||
-            'Seu sistema nao atende aos requisitos para executar este backend. Instale Node.js, npm e as dependencias do projeto, ou recrie o container do orchestrator.',
-        );
-      }
-      setFilePreview((current) =>
-        current
-          ? {
-              ...current,
-              runStatus: 'success',
-              runMessage: `${payload.message || 'Backend iniciado.'} Endpoint: ${payload.triageUrl || payload.url}`,
-              runUrl: payload.url || null,
-            }
-          : current,
-      );
-    } catch (reason) {
-      setFilePreview((current) =>
-        current
-          ? {
-              ...current,
-              runStatus: 'error',
-              runMessage:
-                reason instanceof Error
-                  ? reason.message
-                  : 'Seu sistema nao atende aos requisitos para executar este backend. Instale Node.js, npm e as dependencias do projeto, ou recrie o container do orchestrator.',
-              runUrl: null,
-            }
-          : current,
-      );
     }
   }
 
@@ -1399,7 +1118,7 @@ function PlaygroundPage({
                     const stepStatus = effectiveStepStatus(step);
                     const toolCalls = parseToolCalls(step.toolCalls);
                     const images = imageToolCalls(step.toolCalls);
-                    const files = fileToolCalls(step.toolCalls);
+                    const files = fileToolCalls(toolCalls);
                     const agentName = resolveStepAgentName(step, agentById, graphPlan);
                     return (
                       <article className={`trace-card ${stepStatus === 'FAILED' ? 'failed' : ''}`} key={step.id}>
@@ -1557,36 +1276,18 @@ function PlaygroundPage({
                   Executar
                 </button>
               ) : null}
-              {isBackendRunnableFile(filePreview.path, filePreview.extension) ? (
-                <button
-                  className="file-run-button backend"
-                  disabled={filePreview.runStatus === 'running'}
-                  onClick={() => void runBackendPreview(filePreview)}
-                  type="button"
-                >
-                  {filePreview.runStatus === 'running' ? 'Iniciando' : 'Executar backend'}
-                </button>
-              ) : null}
               <button className="image-preview-close" onClick={() => setFilePreview(null)} type="button" aria-label="Fechar arquivo">
                 x
               </button>
             </div>
           </div>
-          {filePreview.runMessage ? (
-            <div className={`file-run-message ${filePreview.runStatus}`}>
-              <p>{filePreview.runMessage}</p>
-              {filePreview.runUrl ? (
-                <a href={filePreview.runUrl} rel="noreferrer" target="_blank">
-                  Abrir backend
-                </a>
-              ) : null}
-            </div>
-          ) : null}
           <div className={`file-preview-body language-${filePreview.extension}`}>
             {filePreview.loading ? (
               <p className="file-preview-state">Carregando arquivo...</p>
             ) : filePreview.error ? (
               <p className="file-preview-error">{filePreview.error}</p>
+            ) : isMarkdownExtension(filePreview.extension) ? (
+              <div className="markdown-preview">{renderMarkdownPreview(filePreview.content)}</div>
             ) : (
               <pre>
                 <code>{renderHighlightedCode(filePreview.content, filePreview.extension)}</code>

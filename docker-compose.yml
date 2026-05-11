@@ -48,6 +48,7 @@ services:
       AGENTFLOW_TOOL_WORKDIR: /app/tool-workspace
       AGENTFLOW_TOOL_MAX_READ_BYTES: ${AGENTFLOW_TOOL_MAX_READ_BYTES:-65536}
       ORCHESTRATOR_PUBLIC_BASE_URL: ${ORCHESTRATOR_PUBLIC_BASE_URL:-http://localhost:8000}
+      ORCHESTRATOR_CORS_ORIGINS: ${ORCHESTRATOR_CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
       WEB_SEARCH_TIMEOUT_SECONDS: ${WEB_SEARCH_TIMEOUT_SECONDS:-8}
       HF_TOKEN: ${HF_TOKEN:-replace-me}
       HF_IMAGE_PROVIDER: ${HF_IMAGE_PROVIDER:-wavespeed}
@@ -56,7 +57,6 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     ports:
       - "8000:8000"
-      - "3000:3000"
     volumes:
       - ${AGENTFLOW_HOST_TOOL_WORKDIR:-./tool-workspace}:/app/tool-workspace
 

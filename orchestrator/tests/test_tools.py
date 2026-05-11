@@ -79,7 +79,7 @@ def test_file_write_uses_contextual_workspace_path_for_plain_text(tmp_path: Path
 
 def test_file_write_extracts_code_fence_from_backend_output(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AGENTFLOW_TOOL_WORKDIR", str(tmp_path))
-    output = """BACKEND_PATH: demo-issue-triage/backend/triage-service.ts
+    output = """BACKEND_PATH: generated/backend/triage-service.ts
 
 Resumo da Implementacao:
 Foi implementado um servico de triagem.
@@ -99,8 +99,8 @@ Para executar, instale dependencias e rode o servidor.
     calls = tools.run_allowed_tools({"file_write"}, output, {})
 
     assert calls[0]["status"] == "COMPLETED"
-    assert calls[0]["result"]["path"] == "demo-issue-triage/backend/triage-service.ts"
-    saved = (tmp_path / "demo-issue-triage" / "backend" / "triage-service.ts").read_text(encoding="utf-8")
+    assert calls[0]["result"]["path"] == "generated/backend/triage-service.ts"
+    saved = (tmp_path / "generated" / "backend" / "triage-service.ts").read_text(encoding="utf-8")
     assert saved.startswith("import express")
     assert "Resumo da Implementacao" not in saved
     assert "Para executar" not in saved
@@ -111,19 +111,19 @@ def test_file_write_accepts_json_inside_markdown_fence(tmp_path: Path, monkeypat
     output = """```json
 {
   "file_write": {
-    "path": "demo-issue-triage/backend/triage-service.ts",
+    "path": "generated/backend/triage-service.ts",
     "overwrite": true,
     "content": "export function triage() { return { severity: 'high' }; }"
   },
-  "BACKEND_PATH": "demo-issue-triage/backend/triage-service.ts"
+  "BACKEND_PATH": "generated/backend/triage-service.ts"
 }
 ```"""
 
     calls = tools.run_allowed_tools({"file_write"}, output, {})
 
     assert calls[0]["status"] == "COMPLETED"
-    assert calls[0]["result"]["path"] == "demo-issue-triage/backend/triage-service.ts"
-    saved = (tmp_path / "demo-issue-triage" / "backend" / "triage-service.ts").read_text(encoding="utf-8")
+    assert calls[0]["result"]["path"] == "generated/backend/triage-service.ts"
+    saved = (tmp_path / "generated" / "backend" / "triage-service.ts").read_text(encoding="utf-8")
     assert saved == "export function triage() { return { severity: 'high' }; }"
 
 
@@ -132,7 +132,7 @@ def test_file_write_formats_minified_html(tmp_path: Path, monkeypatch: pytest.Mo
     output = json.dumps(
         {
             "file_write": {
-                "path": "demo-issue-triage/frontend/issue-triage-demo.html",
+                "path": "generated/frontend/issue-triage-demo.html",
                 "overwrite": True,
                 "content": "<!DOCTYPE html><html><head><title>Demo</title></head><body><main><h1>Oi</h1></main><script>const tpl = `<div><p>ok</p></div>`;</script></body></html>",
             }
@@ -142,7 +142,7 @@ def test_file_write_formats_minified_html(tmp_path: Path, monkeypatch: pytest.Mo
     calls = tools.run_allowed_tools({"file_write"}, output, {})
 
     assert calls[0]["status"] == "COMPLETED"
-    saved = (tmp_path / "demo-issue-triage" / "frontend" / "issue-triage-demo.html").read_text(encoding="utf-8")
+    saved = (tmp_path / "generated" / "frontend" / "issue-triage-demo.html").read_text(encoding="utf-8")
     assert "\n<html>" in saved
     assert "\n      <h1>" in saved
     assert "const tpl = `<div><p>ok</p></div>`;" in saved
@@ -150,7 +150,7 @@ def test_file_write_formats_minified_html(tmp_path: Path, monkeypatch: pytest.Mo
 
 def test_file_write_extracts_tsx_fence_from_frontend_output(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AGENTFLOW_TOOL_WORKDIR", str(tmp_path))
-    output = """FRONTEND_PATH: demo-issue-triage/frontend/IssueTriagePanel.tsx
+    output = """FRONTEND_PATH: generated/frontend/IssueTriagePanel.tsx
 
 Implementei um componente React.
 
@@ -167,8 +167,8 @@ export default function IssueTriagePanel() {
     calls = tools.run_allowed_tools({"file_write"}, output, {})
 
     assert calls[0]["status"] == "COMPLETED"
-    assert calls[0]["result"]["path"] == "demo-issue-triage/frontend/IssueTriagePanel.tsx"
-    saved = (tmp_path / "demo-issue-triage" / "frontend" / "IssueTriagePanel.tsx").read_text(encoding="utf-8")
+    assert calls[0]["result"]["path"] == "generated/frontend/IssueTriagePanel.tsx"
+    saved = (tmp_path / "generated" / "frontend" / "IssueTriagePanel.tsx").read_text(encoding="utf-8")
     assert saved.startswith("import React")
     assert "Implementei" not in saved
 

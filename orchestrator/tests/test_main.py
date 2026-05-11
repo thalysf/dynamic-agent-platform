@@ -1,10 +1,9 @@
-from uuid import uuid4
+﻿from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.graph import pipeline_graph
-from app import main as app_main
 from app.main import app
 
 client = TestClient(app)
@@ -33,37 +32,6 @@ def test_tool_files_are_served_from_tool_workspace(tmp_path, monkeypatch) -> Non
     assert response.text == "hello preview"
 
 
-def test_backend_runner_rejects_paths_outside_demo_backend(tmp_path, monkeypatch) -> None:
-    monkeypatch.setenv("AGENTFLOW_TOOL_WORKDIR", str(tmp_path))
-    (tmp_path / "other.ts").write_text("console.log('nope')", encoding="utf-8")
-
-    response = client.post("/tool-files/backend-runs", json={"path": "other.ts"})
-
-    assert response.status_code == 400
-    assert "demo-issue-triage/backend" in response.json()["detail"]
-
-
-def test_backend_runner_requires_existing_backend_file(tmp_path, monkeypatch) -> None:
-    monkeypatch.setenv("AGENTFLOW_TOOL_WORKDIR", str(tmp_path))
-
-    response = client.post(
-        "/tool-files/backend-runs",
-        json={"path": "demo-issue-triage/backend/triage-service.ts"},
-    )
-
-    assert response.status_code == 404
-
-
-def test_demo_backend_proxy_returns_contract_fallback_when_backend_is_down(monkeypatch) -> None:
-    monkeypatch.setattr(app_main, "BACKEND_RUN_PORT", 9)
-
-    response = client.post("/demo-backend/triage", json={"title": "Bug", "description": "Falha"})
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["severity"] == "configuração necessária"
-    assert body["isDuplicate"] is False
-    assert "Executar backend" in body["summary"]
 
 
 def test_run_orchestration_mock() -> None:
